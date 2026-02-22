@@ -1,0 +1,55 @@
+{
+  "models": {
+    "fast": {
+      "base_url": "http://localhost:11434/v1",
+      "model": "qwen2.5:7b",
+      "temperature": 0.1,
+      "max_tokens": 1200,
+      "timeout_s": 120.0
+    },
+    "quality": {
+      "base_url": "http://localhost:11434/v1",
+      "model": "qwen2.5:14b",
+      "temperature": 0.1,
+      "max_tokens": 2400,
+      "timeout_s": 120.0
+    }
+  },
+  "packs": {
+    "engineering": {
+      "description": "Quality-first software/data engineering team: plan \u2192 implement \u2192 test \u2192 review \u2192 iterate.",
+      "keywords": [
+        "build",
+        "implement",
+        "code",
+        "service",
+        "pipeline",
+        "kubernetes",
+        "gcp",
+        "scala",
+        "rust",
+        "python"
+      ],
+      "workflow": "engineering_v1"
+    },
+    "research": {
+      "description": "Systematic literature review workflow: scope \u2192 search \u2192 screen \u2192 extract \u2192 synthesize \u2192 critique.",
+      "keywords": [
+        "literature",
+        "systematic review",
+        "paper",
+        "arxiv",
+        "survey",
+        "bibliography",
+        "citations"
+      ],
+      "workflow": "research_v1"
+    }
+  },
+  "local_llm_ensure_available": true,
+  "local_llm_start_cmd": [
+    "ollama",
+    "serve"
+  ],
+  "local_llm_start_timeout_s": 90
+}

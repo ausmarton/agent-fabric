@@ -1,0 +1,2 @@
+[console_scripts]
+fabric = agent_fabric.interfaces.cli:app

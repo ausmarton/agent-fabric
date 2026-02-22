@@ -1,0 +1,23 @@
+{
+  "models": {
+    "quality": {
+      "base_url": "http://127.0.0.1:18998/v1",
+      "model": "mock",
+      "temperature": 0.1,
+      "max_tokens": 2048,
+      "timeout_s": 10.0
+    }
+  },
+  "packs": {
+    "engineering": {
+      "description": "Quality-first software/data engineering team.",
+      "keywords": ["build", "implement", "code", "service", "pipeline", "kubernetes", "gcp", "scala", "rust", "python"],
+      "workflow": "engineering_v1"
+    },
+    "research": {
+      "description": "Systematic literature review workflow.",
+      "keywords": ["literature", "systematic review", "paper", "arxiv", "survey", "bibliography", "citations"],
+      "workflow": "research_v1"
+    }
+  }
+}

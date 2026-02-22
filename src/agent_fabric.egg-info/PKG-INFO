@@ -1,0 +1,151 @@
+Metadata-Version: 2.4
+Name: agent-fabric
+Version: 0.1.0
+Summary: A portable, quality-first agent fabric (router + supervisor + specialist packs) that runs on local OpenAI-compatible LLM endpoints.
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.6
+Requires-Dist: pydantic-settings>=2.2
+Requires-Dist: httpx>=0.27
+Requires-Dist: typer>=0.12
+Requires-Dist: rich>=13.7
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn>=0.27
+Requires-Dist: jsonschema>=4.21
+Requires-Dist: tenacity>=8.2
+Requires-Dist: trafilatura>=1.7.0
+Requires-Dist: duckduckgo-search>=6.1.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+
+# agent-fabric (MVP)
+
+A **quality-first** “agent fabric” for local inference:
+- **Router + Supervisor** picks a specialist pack on demand
+- Packs are modular (engineering, research), with explicit tool schemas
+- **Uses Ollama** for local LLM inference by default; other OpenAI-compatible servers are supported via config.
+
+- **Requirements and validation:** [REQUIREMENTS.md](REQUIREMENTS.md)  
+- **Long-term vision:** [docs/VISION.md](docs/VISION.md)  
+- **Build plan and current state:** [docs/PLAN.md](docs/PLAN.md), [docs/STATE.md](docs/STATE.md) — use these to resume work or see what’s next.  
+- **Design assessment:** [docs/DESIGN_ASSESSMENT.md](docs/DESIGN_ASSESSMENT.md) — how well the implementation matches the vision; Ollama and re-think notes.
+
+This is an MVP designed to scale into:
+- an engineering “team” (plan → implement → test → review → iterate)
+- a research team (systematic review with screening log + evidence table + citations)
+- later: enterprise connectors (Confluence/Jira/GitHub/Rally) via MCP or custom tools
+
+## Quickstart (Fedora)
+
+We use **Ollama** for local inference. Follow these steps in order; each block is copy-pastable.
+
+### 1) System deps
+```bash
+sudo dnf install -y python3 python3-devel gcc gcc-c++ make cmake git ripgrep jq
+```
+
+### 2) Install and run Ollama
+Install Ollama (pick one):
+
+**Option A – official script**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+**Option B – Fedora package** (if available for your release)
+```bash
+sudo dnf install -y ollama
+```
+
+Start the server (if not already running as a user or system service):
+```bash
+ollama serve
+```
+Leave this running in a terminal, or run it in the background (`ollama serve &`). On some setups Ollama runs as a service and you can skip this.
+
+Pull a model that the default config uses (this downloads several GB and may take a few minutes):
+```bash
+ollama pull qwen2.5:7b
+```
+Optional, for `--model-key quality`:
+```bash
+ollama pull qwen2.5:14b
+```
+
+If you prefer a different model (e.g. `llama3.1:8b`), pull it and point the fabric at a config that uses it: copy `examples/ollama.json`, set the `model` field under `fast` and `quality` to your model name, then `export FABRIC_CONFIG_PATH=/path/to/that/config.json`.
+
+### 3) Create a venv and install the fabric
+```bash
+cd /path/to/agent-fabric   # repo root
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e .
+```
+
+Default config uses `http://localhost:11434/v1` and models `qwen2.5:7b` / `qwen2.5:14b`. No extra config if you use those.
+
+### 4) Run the fabric
+**Prerequisite:** Ollama must be running and you must have pulled at least one model (step 2). If you see `404 Not Found` for `/chat/completions`, the configured model isn’t available—run `ollama pull qwen2.5:7b` or set `FABRIC_CONFIG_PATH` to a config that uses a model you’ve already pulled (e.g. copy `examples/ollama.json` and set `model` to e.g. `llama3.1:8b`).
+
+Quick smoke test (creates a file and lists the workspace; usually under a minute):
+```bash
+fabric run "Create a file hello.txt with content Hello World. Then list the workspace." --pack engineering
+```
+You should see a run dir path and JSON with `"action": "final"` and `"artifacts": ["hello.txt"]`. Check `.fabric/runs/<run_id>/workspace/` for `hello.txt` and `.fabric/runs/<run_id>/runlog.jsonl` for `tool_call` / `tool_result` events.
+
+Longer examples (may take 2–5+ minutes each):
+```bash
+fabric run "Create a tiny FastAPI service with a /health route and unit tests. Make it runnable with uvicorn." --pack engineering
+```
+```bash
+fabric run "Do a mini systematic review of post-quantum cryptography performance impacts in real-time systems." --pack research
+```
+
+Outputs:
+- A run directory with `runlog.jsonl` (all model and tool steps)
+- A per-run `workspace/` with generated artifacts
+
+## Quality gates
+The engineering workflow enforces:
+- “don’t claim it works unless you ran tests/build”
+- use tools frequently
+- propose deploy/push steps but **don’t execute** (human approval required)
+
+## Testing
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+- **Without a real LLM:** 32 tests pass, 4 skip (real-LLM tests skip when the server or default model isn’t available).
+- **With a real LLM:** Ensure Ollama is running and at least one model is pulled (e.g. `ollama pull qwen2.5:7b`). If your config uses a different model, set `FABRIC_CONFIG_PATH` to a config that has that model. Then run `pytest tests/ -v` again: all **36** tests should pass, including engineering E2E, research E2E, API POST /run with real LLM, and `scripts/verify_working_real.py` run as a test.
+- **Fast CI (no LLM):** `FABRIC_SKIP_REAL_LLM=1 pytest tests/ -v` runs 32 tests and skips the 4 real-LLM tests.
+
+Standalone real-LLM check (same as one of the pytest tests):
+```bash
+python scripts/verify_working_real.py
+```
+Runs a real engineering task and asserts tool_call/tool_result and workspace artifacts. Exits with instructions if Ollama isn’t running or the model isn’t available.
+
+## Extending packs
+Add a new specialist: implement a pack in **`src/agent_fabric/infrastructure/specialists/`** (system prompt, tools, and register in **`registry.py`**); add an entry to config **specialists** (see `agent_fabric.config.schema` and `examples/ollama.json`). One tool loop in `agent_fabric.application.execute_task`; no per-pack workflow files.
+
+## Using another backend (not locked to Ollama)
+
+The fabric uses the **OpenAI chat-completions API** (`POST /v1/chat/completions`). Ollama is the default because it’s easy to run locally; any server that speaks that API works (llama.cpp, vLLM, LiteLLM, OpenAI, etc.). See [docs/BACKENDS.md](docs/BACKENDS.md) for why we’re not stuck with Ollama and how the code stays portable.
+
+To use another server, point config at it:
+
+```bash
+export FABRIC_CONFIG_PATH="/path/to/your/config.json"
+```
+
+In that config set `base_url` (e.g. `http://localhost:8000/v1`) and `model` to the name your server expects. See `examples/ollama.json` for the shape; duplicate and change `models`. If you run the server yourself, set `local_llm_ensure_available: false` or provide your own `local_llm_start_cmd`.
+
+## Next upgrades (recommended)
+1) Replace simple keyword routing with a small router model + JSON schema output
+2) Add containerized on-demand workers (podman) per specialist role
+3) Add MCP tool servers for Confluence/Jira/GitHub (least-privilege, sandboxed)
+4) Add persistent vector store for enterprise RAG (doc metadata + staleness scoring)
+5) Add observability export (OpenTelemetry traces)

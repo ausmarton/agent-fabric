@@ -1,0 +1,13 @@
+{
+  "models": {
+    "fast": {"base_url": "http://localhost:11434/v1", "model": "llama3.1:8b", "temperature": 0.1, "max_tokens": 1200, "timeout_s": 120},
+    "quality": {"base_url": "http://localhost:11434/v1", "model": "llama3.1:8b", "temperature": 0.1, "max_tokens": 2400, "timeout_s": 120}
+  },
+  "packs": {
+    "engineering": {"description": "Plan → implement → test → review → iterate.", "keywords": ["build", "implement", "code"], "workflow": "engineering"},
+    "research": {"description": "Scope → search → screen → extract → synthesize.", "keywords": ["literature", "review", "paper"], "workflow": "research"}
+  },
+  "local_llm_ensure_available": true,
+  "local_llm_start_cmd": ["ollama", "serve"],
+  "local_llm_start_timeout_s": 90
+}

@@ -1,0 +1,139 @@
+# agent-fabric: Current State
+
+**Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
+
+**Last updated:** 2026-02-23. **Full validation** (real LLM, all 42 tests) is required to prove the system works; see Phase 1 verification gate below.
+
+---
+
+## Current phase: **Phase 1 complete → Next: Phase 2**
+
+Phase 1 is **complete**. All deliverables and the verification gate are done. Next: start Phase 2 (task decomposition and capability-based routing).
+
+---
+
+## Phase 1 checklist (from [PLAN.md](PLAN.md))
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|--------|
+| 1.1 | CLI: `fabric run`, `fabric serve` | Done | `src/agent_fabric/interfaces/cli.py` |
+| 1.2 | HTTP API: `/health`, `POST /run` | Done | `src/agent_fabric/interfaces/http_api.py` |
+| 1.3 | Config: defaults + `FABRIC_CONFIG_PATH` | Done | `agent_fabric.config.load_config` |
+| 1.4 | Recruit: keyword + fallback | Done | `agent_fabric.application.recruit`; `tests/test_router.py` |
+| 1.5 | Execute task: run dir, workspace, runlog, one pack | Done | `agent_fabric.application.execute_task` |
+| 1.6 | Engineering specialist | Done | `src/agent_fabric/infrastructure/specialists/engineering.py` |
+| 1.7 | Research specialist | Done | `src/agent_fabric/infrastructure/specialists/research.py`; web tools gated by `network_allowed` |
+| 1.8 | Sandbox: path safety, shell allowlist | Done | `src/agent_fabric/infrastructure/tools/sandbox.py`; `tests/test_sandbox.py` |
+| 1.9 | Runlog + model params to LLM | Done | `model_cfg` passed; runlog in run dir |
+| 1.10 | Quality gates in prompts | Done | FR5; deploy proposed only; citations from fetch only |
+| 1.11 | Automated tests | Done | `tests/` — router, sandbox, json_tools, prompts, config, packs |
+| 1.12 | Docs: README, REQUIREMENTS, VISION, PLAN, STATE | Done | This file + PLAN + VISION + REQUIREMENTS |
+| 1.13 | Local LLM default and core (ensure available by default) | Done | `local_llm_ensure_available: true` by default; [SELF_CONTAINED_LLM.md](SELF_CONTAINED_LLM.md); `ensure_llm_available` in CLI/API; opt-out for managed server |
+
+---
+
+## Phase 1 verification gate (run before marking Phase 1 complete)
+
+**Integration assurance** requires **at least a couple of E2E tests that run against a real LLM** to run and pass. Mocked and unit tests add value (fast feedback, wiring, contracts); real-LLM E2E are essential to ensure everything is integrated and working as expected.
+
+- [x] **Full validation (proves system works):** `python scripts/validate_full.py` — ensures LLM is reachable (starts it if configured), then runs pytest so **all 42 tests** run (no skips). Must pass. If no LLM can be reached or started, the script exits with failure and does not run tests.
+- [x] **Run dir:** `fabric run "list files" --pack engineering` → creates `.fabric/runs/<id>/runlog.jsonl` and `workspace/` (connection error without LLM server is expected).
+- [x] **API:** `fabric serve` then `curl http://127.0.0.1:8787/health` → `{"ok": true}`. `POST /run` without LLM returns **503** with a clear detail message.
+- [x] **REQUIREMENTS:** Manual validation items 1–4 in REQUIREMENTS.md hold (CLI help, routing, run structure, API health).
+- [x] **E2E (real LLM):** With a real LLM available, `python scripts/verify_working_real.py` → exits 0; runlog has tool_call and tool_result; workspace has artifacts. Same is asserted by the real-LLM pytest tests when run via `validate_full.py`.
+
+**Fast CI:** `FABRIC_SKIP_REAL_LLM=1 pytest tests/ -v` → 38 pass, 4 skip. Use for quick feedback on wiring and unit/integration behaviour; it does not replace the need to run real-LLM E2E for integration assurance.
+
+**Phase 1 complete.** Full validation requires running `scripts/validate_full.py` (or pytest with a real LLM) so all 42 tests run and pass. Next: Phase 2.
+
+**Verification passes (multi-pass checklist):** See [VERIFICATION_PASSES.md](VERIFICATION_PASSES.md). Last run 2026-02-23: Pass 1 (fast CI) 38 pass + 4 skip; Pass 2 (CLI, run dir) OK; Pass 3 (API health 200, POST 503 without LLM) OK; Pass 4 (full validation) and Pass 5 (live demo) require a real LLM and an available model (e.g. `ollama pull qwen2.5:7b`).
+
+---
+
+## Phase 1: what’s tested, what’s not
+
+**Fully tested / demonstrated**
+
+All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automated test coverage or are covered by the verification gate and E2E runs.
+
+| Area | How it’s tested |
+|------|------------------|
+| CLI `fabric run` / `fabric serve` | pytest (integration + API); real CLI run with real LLM (engineering task). |
+| API `GET /health`, `POST /run` | pytest (health, POST with mocked execute_task); POST without LLM → 503. |
+| Config, recruit, sandbox, runlog, packs | Unit and integration tests (test_config, test_router, test_sandbox, test_packs, test_integration, etc.). |
+| Engineering pack with real LLM, tool use, artifacts | `verify_working_real.py` (exits 0; tool_call/tool_result; workspace e.g. hello.txt). |
+| Run dir structure (runlog.jsonl, workspace/) | All E2E and integration tests. |
+| Routing (keyword + fallback), research pack tool list (network_allowed) | test_router, test_packs. |
+| Local LLM default (config, ensure_available in code) | test_config, test_llm_bootstrap; real run uses Ollama when available. |
+| BACKENDS/REQUIREMENTS alignment (backend-agnostic, ensure when enabled, run dir only under workspace_root) | `tests/test_backends_alignment.py`: ChatClient port only, config defaults, API ensure_llm_available when enabled / skipped when opted out, run dir under workspace_root. |
+
+**Recommended for full demonstration (manual or when LLM available)**
+
+| Check | Command / how |
+|-------|----------------|
+| **Research pack with real LLM** (REQUIREMENTS §6) | `fabric run "Mini systematic review of post-quantum crypto performance." --pack research` (with `network_allowed` true if you want web tools). Inspect runlog for web_search/fetch_url and workspace for deliverables. |
+| **API POST /run with real LLM** | `fabric serve` in one terminal; `curl -X POST http://127.0.0.1:8787/run -H "Content-Type: application/json" -d '{"prompt":"Create a file ok.txt with content OK","pack":"engineering"}'`. Expect 200 and JSON with `_meta` and payload. |
+| **Local LLM bootstrap (start if unreachable)** | With Ollama stopped, run `fabric run "list files" --pack engineering` (default `local_llm_ensure_available: true`). Fabric should start `ollama serve` and then run; or fail with a clear “couldn’t start or reach” message if Ollama isn’t installed. |
+
+**Not automated (prompt/behaviour)**
+
+- **FR5.1 / FR5.2:** Quality gates (no “works” without tests; deploy proposed only; citations only from fetch) are in system prompts; compliance is by design and manual inspection, not automated assertion.
+- **FR5.3:** Research with `network_allowed: false` omits web tools (tested in test_packs); tools return “network disabled” when invoked (in tool implementation).
+
+---
+
+## Phase 2 checklist (from [PLAN.md](PLAN.md)) — not started
+
+| # | Deliverable | Status |
+|---|-------------|--------|
+| 2.1 | Capability model: define capabilities, map packs in config | Pending |
+| 2.2 | Task → capabilities (rules or router model) | Pending |
+| 2.3 | Recruitment: select pack(s) from capabilities (single pack for Phase 2) | Pending |
+| 2.4 | Runlog/metadata: log required_capabilities, selected_pack(s) | Pending |
+| 2.5 | Docs: VISION §8, REQUIREMENTS, STATE updated | Pending |
+
+---
+
+## Next steps (what to do when resuming)
+
+1. **If Phase 1 verification gate is not fully checked:** Run the four verification steps above; fix any failure; update this file (e.g. add “Last verified: …”).
+2. **Start Phase 2:** Open [PLAN.md](PLAN.md) § Phase 2. Implement 2.1 → 2.5; add a Phase 2 checklist to this file. Run `pytest tests/ -v` after each change; before marking Phase 2 complete, run the Phase 2 verification gate.
+
+---
+
+## Quick commands (for copy-paste)
+
+```bash
+# From repo root
+pip install -e ".[dev]"
+pytest tests/ -v
+
+# CLI
+fabric --help
+fabric run "list files" --pack engineering
+fabric run "mini systematic review of X" --pack research
+
+# API (background)
+fabric serve
+# then: curl http://127.0.0.1:8787/health
+# POST: curl -X POST http://127.0.0.1:8787/run -H "Content-Type: application/json" -d '{"prompt":"list files","pack":"engineering"}'
+```
+
+---
+
+## Blockers / open questions
+
+- None at last update. (e.g. “Need LLM server URL for E2E”) so the next session can unblock.
+
+---
+
+## Doc map (for agents)
+
+| Read first | Then | For |
+|------------|------|-----|
+| **STATE.md** (this file) | PLAN.md (current phase) | Resuming work; what’s done, what’s next |
+| PLAN.md | REQUIREMENTS.md, VISION.md | Full context; verification criteria |
+| REQUIREMENTS.md | — | MVP behaviour and validation |
+| VISION.md | — | Long-term vision and alignment |
+
+When you complete a deliverable or run verification, **update this file** (STATE.md) so the next session knows the current state.
