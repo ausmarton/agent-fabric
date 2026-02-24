@@ -104,5 +104,6 @@ async def run(req: RunRequest):
         "workspace": result.workspace_path,
         "model": result.model_name,
         "run_id": result.run_id.value,
+        "required_capabilities": result.required_capabilities,
     }
     return out

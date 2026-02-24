@@ -128,7 +128,7 @@ Use this checklist to keep the repo aligned with the vision.
 | Engineering pack: plan→implement→test→review | `workflows/engineering_v1.py`, `packs/engineering.py` | Implemented; deploy/push proposed only (FR5.1). |
 | Research pack: systematic review, citations, screening | `workflows/research_v1.py`, `packs/research.py` | Implemented; citations only from fetch_url (FR5.2). |
 | Deploy/push require human approval | Engineering system rules, FR5.1, `require_human_approval_for` in config | In rules and config; not auto-executed. |
-| Task-based recruitment (one pack per run) | `router.py`, `supervisor.py`, config `packs` | One pack per run; task decomposition + multi-pack task force is future. |
+| Task-based recruitment (one pack per run) | `application/recruit.py`, `config/capabilities.py`, `config/schema.py` | **Phase 2 complete:** two-stage capability routing (prompt → required capabilities → pack by coverage); `required_capabilities` logged in runlog and HTTP `_meta`; one pack per run; multi-pack task force is Phase 3. |
 | Orchestrator decides what to spin up | Router today; no task decomposition yet | Vision: orchestrator always available; agents spun up on demand. No “toggle teams”. |
 | Enterprise (Confluence/Jira/GitHub/Rally) | README “later”, REQUIREMENTS “out of scope” | Planned; MCP/custom tools in “Next upgrades”. |
 | Observability | README “Next upgrades”, REQUIREMENTS “out of scope” | Runlog exists; OpenTelemetry export is future. |

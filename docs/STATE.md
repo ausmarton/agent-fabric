@@ -2,13 +2,13 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-24. Fast CI: **105 pass** (T1 + T2 tiers complete; T3 tier complete).
+**Last updated:** 2026-02-24. Fast CI: **122 pass** (T1 + T2 + T3 tiers complete; Phase 2 complete).
 
 ---
 
-## Current phase: **Phase 1 complete → Next: Phase 2**
+## Current phase: **Phase 2 complete → Next: Phase 3**
 
-Phase 1 is **complete**. All deliverables and the verification gate are done. Next: start Phase 2 (task decomposition and capability-based routing).
+Phase 2 is **complete**. All five deliverables (P2-1 through P2-5) are done. Next: Phase 3 (multi-pack task force) or additional Phase 2 polish.
 
 ---
 
@@ -82,15 +82,15 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 
 ---
 
-## Phase 2 checklist (from [PLAN.md](PLAN.md)) — not started
+## Phase 2 checklist (from [PLAN.md](PLAN.md)) — **complete**
 
-| # | Deliverable | Status |
-|---|-------------|--------|
-| 2.1 | Capability model: define capabilities, map packs in config | Pending |
-| 2.2 | Task → capabilities (rules or router model) | Pending |
-| 2.3 | Recruitment: select pack(s) from capabilities (single pack for Phase 2) | Pending |
-| 2.4 | Runlog/metadata: log required_capabilities, selected_pack(s) | Pending |
-| 2.5 | Docs: VISION §8, REQUIREMENTS, STATE updated | Pending |
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 2.1 | Capability model: define capabilities, map packs in config | Done | `config/capabilities.py` (CAPABILITY_KEYWORDS); `capabilities` field on SpecialistConfig; DEFAULT_CONFIG updated |
+| 2.2 | Task → capabilities (rules or router model) | Done | `infer_capabilities()` in `application/recruit.py`; keyword substring matching |
+| 2.3 | Recruitment: select pack(s) from capabilities (single pack for Phase 2) | Done | `RecruitmentResult`; two-stage routing in `recruit_specialist()`; keyword fallback preserved |
+| 2.4 | Runlog/metadata: log required_capabilities, selected_pack(s) | Done | `"recruitment"` event in runlog; `required_capabilities` on `RunResult`; in HTTP `_meta` |
+| 2.5 | Docs: VISION §8, REQUIREMENTS, STATE updated | Done | `REQUIREMENTS.md` FR2.1 rewritten; VISION §8 alignment table updated; `docs/CAPABILITIES.md` new |
 
 ---
 
@@ -100,7 +100,7 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
 2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 45 pass before touching code.
-3. Start the first non-done item (T3 tier complete → next: **Phase 2** per BACKLOG.md).
+3. Start the first non-done item (Phase 2 complete → next: **Phase 3** per BACKLOG.md).
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 **Do not start Phase 2 (P2-1 through P2-5 in BACKLOG.md) until all T1 items are done.**

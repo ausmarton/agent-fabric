@@ -80,3 +80,4 @@ class RunResult:
     specialist_id: str
     model_name: str
     payload: Dict[str, Any]
+    required_capabilities: List[str] = field(default_factory=list)

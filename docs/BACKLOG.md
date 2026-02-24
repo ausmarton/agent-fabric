@@ -319,7 +319,7 @@ items are done and the Phase 1 verification gate still passes.
 
 ---
 
-### P2-1: Capability model — define capabilities and map packs
+### ~~P2-1: Capability model — define capabilities and map packs~~ **DONE 2026-02-24**
 
 **What:** Define a set of capability IDs (e.g., `"code_execution"`, `"file_io"`,
 `"systematic_review"`, `"web_search"`) and declare which capabilities each pack provides
@@ -332,7 +332,7 @@ not keyword heuristics.
 
 ---
 
-### P2-2: Task-to-capabilities mapping
+### ~~P2-2: Task-to-capabilities mapping~~ **DONE 2026-02-24**
 
 **What:** Given a task prompt, determine the required capability IDs. Start with a rules/keyword
 approach (similar to current routing but keyed to capability IDs, not pack names). Later replace
@@ -345,7 +345,7 @@ task forces in Phase 3.
 
 ---
 
-### P2-3: Recruit pack from capabilities
+### ~~P2-3: Recruit pack from capabilities~~ **DONE 2026-02-24**
 
 **What:** Select the pack(s) whose declared capabilities cover the required capabilities.
 For Phase 2: still single pack per run. Log `required_capabilities` and `selected_pack` in
@@ -355,7 +355,7 @@ run metadata.
 
 ---
 
-### P2-4: Log required capabilities and selected pack in run metadata
+### ~~P2-4: Log required capabilities and selected pack in run metadata~~ **DONE 2026-02-24**
 
 **What:** `runlog.jsonl` and/or the `RunResult` metadata (`_meta` in HTTP response) should
 include `required_capabilities: [...]` and `selected_pack: "..."`. This makes routing
@@ -365,7 +365,7 @@ decisions observable and debuggable.
 
 ---
 
-### P2-5: Update docs for Phase 2
+### ~~P2-5: Update docs for Phase 2~~ **DONE 2026-02-24**
 
 **What:** Update `STATE.md` (Phase 2 complete), `PLAN.md` (tick off deliverables), `VISION.md §8`
 (alignment table), and `REQUIREMENTS.md` (describe capability-based routing as a functional
@@ -377,6 +377,7 @@ requirement).
 
 | Item | Completed | Summary |
 |------|-----------|---------|
+| P2-1 through P2-5: Phase 2 capability routing | 2026-02-24 | CAPABILITY_KEYWORDS + capabilities on SpecialistConfig; infer_capabilities(); RecruitmentResult; two-stage routing (caps → keyword fallback); recruitment runlog event; required_capabilities in RunResult + HTTP _meta; docs/CAPABILITIES.md; REQUIREMENTS FR2 + VISION §8 updated. Fast CI: 122 pass (+17) |
 | T3-5: Extract build_task() to domain | 2026-02-24 | build_task() in domain/models.py; (pack or "").strip() or None fixes subtle whitespace-only inconsistency between CLI and HTTP paths; exported from domain/__init__; 6 new tests |
 | T3-4: Config validation at load time | 2026-02-24 | @model_validator on FabricConfig rejects empty specialists dict; docstring marks extension point for future cross-reference checks; 3 new tests |
 | T3-3: Tie-breaking in recruit_specialist | 2026-02-24 | Explicit min(-score, config_index) replaces implicit max; docstring documents contract; 2 parametrized tie-break tests |

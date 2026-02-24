@@ -27,7 +27,12 @@ We **use Ollama** for local inference by default (default config points at local
 
 ### FR2: Routing and packs
 
-- **FR2.1** If `--pack` is not specified, the router shall choose a pack from config using keyword scoring over the prompt (default fallback: engineering for code-ish prompts, else research).
+- **FR2.1** If `--pack` is not specified, the router shall use capability-based routing:
+  1. Infer required capabilities from the task prompt using keyword matching against `CAPABILITY_KEYWORDS`.
+  2. Select the specialist whose declared `capabilities` best cover the inferred requirements.
+  3. Fall back to keyword scoring against each specialist's `keywords` list when no capabilities are inferred.
+  4. Final fallback: hardcoded heuristic (code/build/deploy words → engineering; otherwise → research).
+  The `required_capabilities` inferred and the `routing_method` used shall be logged in `runlog.jsonl` as a `"recruitment"` event and included in the HTTP `_meta` response field.
 - **FR2.2** Two built-in packs shall be supported:
   - **engineering**: tools = shell, read_file, write_file, list_files; workflow = plan → implement → test → review → iterate.
   - **research**: tools = web_search, fetch_url, write_file, read_file, list_files; workflow = scope → search → screen → extract → synthesize.

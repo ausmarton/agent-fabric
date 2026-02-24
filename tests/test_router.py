@@ -1,4 +1,4 @@
-"""Tests for keyword-based recruitment (recruit_specialist)."""
+"""Tests for capability-based recruitment (recruit_specialist)."""
 from __future__ import annotations
 
 import pytest
@@ -8,17 +8,17 @@ from agent_fabric.config.schema import FabricConfig, SpecialistConfig
 
 
 @pytest.mark.parametrize("prompt,expected", [
-    # engineering keywords
+    # engineering keywords → code_execution capability → engineering pack
     ("I need to build a Python service", "engineering"),
     ("implement a pipeline in Scala", "engineering"),
     ("deploy to kubernetes", "engineering"),
-    # research keywords
+    # research keywords → systematic_review capability → research pack
     ("systematic review of literature", "research"),
     ("survey papers on arxiv", "research"),
     ("bibliography and citations", "research"),
 ])
 def test_keyword_routing(prompt, expected):
-    assert recruit_specialist(prompt, DEFAULT_CONFIG) == expected
+    assert recruit_specialist(prompt, DEFAULT_CONFIG).specialist_id == expected
 
 
 @pytest.mark.parametrize("prompt,expected", [
@@ -28,7 +28,7 @@ def test_keyword_routing(prompt, expected):
     ("tell me about something", "research"),
 ])
 def test_fallback_routing(prompt, expected):
-    assert recruit_specialist(prompt, DEFAULT_CONFIG) == expected
+    assert recruit_specialist(prompt, DEFAULT_CONFIG).specialist_id == expected
 
 
 def _make_tie_config(first: str, second: str) -> FabricConfig:
@@ -49,4 +49,4 @@ def _make_tie_config(first: str, second: str) -> FabricConfig:
 def test_tie_break_uses_config_order(first, second, expected):
     """When two specialists score equally, the one first in config wins."""
     config = _make_tie_config(first, second)
-    assert recruit_specialist("foo bar", config) == expected
+    assert recruit_specialist("foo bar", config).specialist_id == expected

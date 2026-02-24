@@ -16,7 +16,7 @@ from agent_fabric.config import FabricConfig, ModelConfig
 from agent_fabric.config.constants import MAX_LLM_CONTENT_IN_RUNLOG_CHARS
 from agent_fabric.domain import RecruitError, RunId, RunResult, Task
 from agent_fabric.application.ports import ChatClient, RunRepository, SpecialistRegistry
-from agent_fabric.application.recruit import recruit_specialist
+from agent_fabric.application.recruit import recruit_specialist, RecruitmentResult
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +60,33 @@ async def execute_task(
         RecruitError: When the specialist id is not found in config.
     """
     # --- recruit -----------------------------------------------------------------
-    specialist_id = task.specialist_id or recruit_specialist(task.prompt, config)
+    if task.specialist_id:
+        specialist_id = task.specialist_id
+        required_capabilities: list[str] = []
+        routing_method = "explicit"
+    else:
+        recruitment: RecruitmentResult = recruit_specialist(task.prompt, config)
+        specialist_id = recruitment.specialist_id
+        required_capabilities = recruitment.required_capabilities
+        routing_method = "capability_routing"
+
     if specialist_id not in config.specialists:
         raise RecruitError(f"Unknown specialist: {specialist_id!r}")
 
     # --- setup -------------------------------------------------------------------
     run_id, run_dir, workspace_path = run_repository.create_run()
     logger.info("Task started: specialist=%s run_id=%s", specialist_id, run_id.value)
+
+    run_repository.append_event(
+        run_id,
+        "recruitment",
+        {
+            "specialist_id": specialist_id,
+            "required_capabilities": required_capabilities,
+            "routing_method": routing_method,
+        },
+        step=None,
+    )
     pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
     model_cfg = resolved_model_cfg or config.models.get(task.model_key) or config.models["quality"]
 
@@ -277,6 +297,7 @@ async def execute_task(
         specialist_id=specialist_id,
         model_name=model_cfg.model,
         payload=payload,
+        required_capabilities=required_capabilities,
     )
 
 
