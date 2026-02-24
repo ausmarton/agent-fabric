@@ -1,6 +1,8 @@
 """Execute task use case.
 
-Flow: recruit specialist → create run → tool loop until finish_task or max_steps.
+Flow: recruit specialist(s) → create run → for each specialist, run a tool
+loop until finish_task or max_steps; context from earlier packs is forwarded
+to later packs so the task force shares progress.
 
 Dependencies are injected (ports only); this module never imports from
 ``infrastructure`` or ``interfaces``.
@@ -36,10 +38,12 @@ async def execute_task(
 ) -> RunResult:
     """Execute a task end-to-end.
 
-    1. Recruit a specialist (keyword-based if not set on ``task``).
+    1. Recruit specialist(s) (keyword-based if not set on ``task``).
     2. Create a run directory + workspace.
-    3. Run a tool loop until the specialist calls ``finish_task`` or ``max_steps``
-       is reached.
+    3. For each specialist, run a tool loop until ``finish_task`` or
+       ``max_steps`` is reached.  When multiple specialists are recruited
+       (a task force), the finish payload from each pack is forwarded as
+       context to the next pack.
     4. Return a ``RunResult`` with the run id, paths, and final payload.
 
     Args:
@@ -50,61 +54,160 @@ async def execute_task(
         config: Fabric configuration (models, specialists, flags).
         resolved_model_cfg: Pre-resolved model config (e.g. from ``resolve_llm``).
             Falls back to ``config.models[task.model_key]`` when not provided.
-        max_steps: Maximum LLM turns before aborting.
+        max_steps: Maximum LLM turns *per specialist* before aborting.
 
     Returns:
-        ``RunResult`` with payload set to the arguments of the ``finish_task`` call
-        (plus ``action: "final"``), or a timeout payload if ``max_steps`` is reached.
+        ``RunResult`` with payload set to the arguments of the final pack's
+        ``finish_task`` call (plus ``action: "final"``), or a timeout payload
+        if ``max_steps`` is reached for the last specialist.
 
     Raises:
-        RecruitError: When the specialist id is not found in config.
+        RecruitError: When a specialist id is not found in config.
     """
     # --- recruit -----------------------------------------------------------------
     if task.specialist_id:
-        specialist_id = task.specialist_id
-        required_capabilities: list[str] = []
+        specialist_ids: List[str] = [task.specialist_id]
+        required_capabilities: List[str] = []
         routing_method = "explicit"
     else:
         recruitment: RecruitmentResult = recruit_specialist(task.prompt, config)
-        specialist_id = recruitment.specialist_id
+        specialist_ids = recruitment.specialist_ids
         required_capabilities = recruitment.required_capabilities
         routing_method = "capability_routing"
 
-    if specialist_id not in config.specialists:
-        raise RecruitError(f"Unknown specialist: {specialist_id!r}")
+    for sid in specialist_ids:
+        if sid not in config.specialists:
+            raise RecruitError(f"Unknown specialist: {sid!r}")
 
     # --- setup -------------------------------------------------------------------
     run_id, run_dir, workspace_path = run_repository.create_run()
-    logger.info("Task started: specialist=%s run_id=%s", specialist_id, run_id.value)
+    is_task_force = len(specialist_ids) > 1
+    logger.info(
+        "Task started: specialists=%s run_id=%s task_force=%s",
+        specialist_ids, run_id.value, is_task_force,
+    )
 
+    # Log recruitment event — include both singular and plural keys for compat.
     run_repository.append_event(
         run_id,
         "recruitment",
         {
-            "specialist_id": specialist_id,
+            "specialist_id": specialist_ids[0],   # Phase 2 compat: primary specialist
+            "specialist_ids": specialist_ids,       # Phase 3: full task force list
             "required_capabilities": required_capabilities,
             "routing_method": routing_method,
+            "is_task_force": is_task_force,
         },
         step=None,
     )
-    pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
+
     model_cfg = resolved_model_cfg or config.models.get(task.model_key) or config.models["quality"]
 
-    messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": pack.system_prompt},
-        {"role": "user", "content": f"Task:\n{task.prompt}"},
-    ]
+    # --- pack loop ---------------------------------------------------------------
+    # Each specialist gets a fresh message context.  Subsequent specialists receive
+    # the previous pack's finish payload as additional context so they can build on
+    # what was already done.
+    prev_finish_payload: Optional[Dict[str, Any]] = None
+    final_payload: Dict[str, Any] = {}
 
+    for pack_idx, specialist_id in enumerate(specialist_ids):
+        pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
+
+        if is_task_force:
+            run_repository.append_event(
+                run_id,
+                "pack_start",
+                {"specialist_id": specialist_id, "pack_index": pack_idx},
+                step=None,
+            )
+            logger.info(
+                "Task force: starting pack %d/%d specialist=%s run_id=%s",
+                pack_idx + 1, len(specialist_ids), specialist_id, run_id.value,
+            )
+
+        # Build initial messages for this pack.
+        if prev_finish_payload is None:
+            user_content = f"Task:\n{task.prompt}"
+        else:
+            prev_specialist_id = specialist_ids[pack_idx - 1]
+            context_block = json.dumps(prev_finish_payload, indent=2, ensure_ascii=False)
+            user_content = (
+                f"Task:\n{task.prompt}\n\n"
+                f"Context from '{prev_specialist_id}' specialist "
+                f"(prior task-force member):\n{context_block}"
+            )
+
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": pack.system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+
+        # Use pack-prefixed step names for task forces so the runlog clearly
+        # shows which pack each step belongs to.
+        step_prefix = f"{specialist_id}_" if is_task_force else ""
+
+        pack_payload = await _execute_pack_loop(
+            pack=pack,
+            messages=messages,
+            model_cfg=model_cfg,
+            chat_client=chat_client,
+            run_repository=run_repository,
+            run_id=run_id,
+            step_prefix=step_prefix,
+            max_steps=max_steps,
+        )
+
+        prev_finish_payload = pack_payload
+        final_payload = pack_payload
+
+    logger.info(
+        "Task completed: run_id=%s specialists=%s is_task_force=%s",
+        run_id.value, specialist_ids, is_task_force,
+    )
+
+    return RunResult(
+        run_id=run_id,
+        run_dir=run_dir,
+        workspace_path=workspace_path,
+        specialist_id=specialist_ids[0],   # primary specialist (config order)
+        model_name=model_cfg.model,
+        payload=final_payload,
+        required_capabilities=required_capabilities,
+        specialist_ids=specialist_ids,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pack tool loop
+# ---------------------------------------------------------------------------
+
+async def _execute_pack_loop(
+    *,
+    pack: Any,  # SpecialistPack protocol
+    messages: List[Dict[str, Any]],
+    model_cfg: ModelConfig,
+    chat_client: ChatClient,
+    run_repository: RunRepository,
+    run_id: RunId,
+    step_prefix: str = "",
+    max_steps: int = 40,
+) -> Dict[str, Any]:
+    """Run one specialist pack's tool loop until ``finish_task`` or ``max_steps``.
+
+    ``messages`` is mutated in place as the conversation accumulates.
+
+    Returns the final payload dict (always has ``action: "final"``).
+    """
     payload: Dict[str, Any] = {}
 
-    # --- tool loop ---------------------------------------------------------------
     for step in range(max_steps):
-        logger.debug("Step %d/%d: %d messages in context", step, max_steps, len(messages))
+        step_key = f"{step_prefix}step_{step}"
+        logger.debug("Step %s: %d messages in context", step_key, len(messages))
         run_repository.append_event(
             run_id,
             "llm_request",
             {"step": step, "message_count": len(messages)},
-            step=f"step_{step}",
+            step=step_key,
         )
 
         response = await chat_client.chat(
@@ -126,7 +229,7 @@ async def execute_task(
                     for tc in response.tool_calls
                 ],
             },
-            step=f"step_{step}",
+            step=step_key,
         )
 
         if not response.has_tool_calls:
@@ -134,8 +237,8 @@ async def execute_task(
             # This handles models that don't support function calling and simply
             # respond in prose.
             logger.warning(
-                "Step %d: LLM returned plain text with no tool calls; using as final payload",
-                step,
+                "Step %s: LLM returned plain text with no tool calls; using as final payload",
+                step_key,
             )
             payload = {
                 "action": "final",
@@ -158,7 +261,7 @@ async def execute_task(
                 run_id,
                 "tool_call",
                 {"tool": tc.tool_name, "args": tc.arguments},
-                step=f"step_{step}",
+                step=step_key,
             )
 
             if tc.tool_name == pack.finish_tool_name:
@@ -170,8 +273,8 @@ async def execute_task(
                 ]
                 if missing:
                     logger.warning(
-                        "Step %d: finish_task missing required fields %s; sending error to LLM for retry",
-                        step, missing,
+                        "Step %s: finish_task missing required fields %s; sending error to LLM for retry",
+                        step_key, missing,
                     )
                     error_result = {
                         "error": "finish_task called with missing required fields",
@@ -186,7 +289,7 @@ async def execute_task(
                         run_id,
                         "tool_result",
                         {"tool": tc.tool_name, "result": error_result},
-                        step=f"step_{step}",
+                        step=step_key,
                     )
                     continue  # Do NOT set finish_payload; LLM must retry.
 
@@ -196,7 +299,7 @@ async def execute_task(
                     run_id,
                     "tool_result",
                     {"tool": tc.tool_name, "result": {"status": "task_completed"}},
-                    step=f"step_{step}",
+                    step=step_key,
                 )
                 continue
 
@@ -229,8 +332,8 @@ async def execute_task(
 
             if error_type is not None:
                 logger.warning(
-                    "Step %d: tool %r error (%s): %s",
-                    step, tc.tool_name, error_type, error_message,
+                    "Step %s: tool %r error (%s): %s",
+                    step_key, tc.tool_name, error_type, error_message,
                 )
                 run_repository.append_event(
                     run_id,
@@ -240,7 +343,7 @@ async def execute_task(
                         "error_type": error_type,
                         "error_message": error_message,
                     },
-                    step=f"step_{step}",
+                    step=step_key,
                 )
                 if error_type == "permission":
                     # Sandbox violation — write a dedicated security_event so the
@@ -257,30 +360,30 @@ async def execute_task(
                             "tool": tc.tool_name,
                             "error_message": error_message,
                         },
-                        step=f"step_{step}",
+                        step=step_key,
                     )
             else:
                 run_repository.append_event(
                     run_id,
                     "tool_result",
                     {"tool": tc.tool_name, "result": result},
-                    step=f"step_{step}",
+                    step=step_key,
                 )
             messages.append(_make_tool_result(tc.call_id, json.dumps(result, ensure_ascii=False)))
 
         if finish_payload is not None:
             payload = finish_payload
             logger.info(
-                "Task completed: run_id=%s specialist=%s steps=%d",
-                run_id.value, specialist_id, step + 1,
+                "Pack loop completed: step=%s pack=%s",
+                step_key, step_prefix.rstrip("_") or "single",
             )
             break
 
     else:
         # for-else: loop completed without breaking → max_steps reached.
         logger.warning(
-            "max_steps (%d) reached without finish_task: run_id=%s specialist=%s",
-            max_steps, run_id.value, specialist_id,
+            "max_steps (%d) reached without finish_task: run_id=%s step_prefix=%r",
+            max_steps, run_id.value, step_prefix,
         )
         payload = {
             "action": "final",
@@ -290,15 +393,7 @@ async def execute_task(
             "notes": "See runlog for details.",
         }
 
-    return RunResult(
-        run_id=run_id,
-        run_dir=run_dir,
-        workspace_path=workspace_path,
-        specialist_id=specialist_id,
-        model_name=model_cfg.model,
-        payload=payload,
-        required_capabilities=required_capabilities,
-    )
+    return payload
 
 
 # ---------------------------------------------------------------------------

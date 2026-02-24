@@ -373,10 +373,67 @@ requirement).
 
 ---
 
+## Phase 3 items (multi-pack task force) — **complete**
+
+---
+
+### ~~P3-1: Multi-pack recruitment (RecruitmentResult.specialist_ids)~~ **DONE 2026-02-24**
+
+**What:** Changed `RecruitmentResult` from a single `specialist_id: str` to
+`specialist_ids: List[str]` with `specialist_id` as a backward-compatible property.
+Added `is_task_force` property. Added `_greedy_select_specialists()` to pick the
+minimum set of specialists that covers all required capabilities.
+
+**Files:** `src/agent_fabric/application/recruit.py`
+
+---
+
+### ~~P3-2: Multi-pack execute_task (sequential execution, shared runlog)~~ **DONE 2026-02-24**
+
+**What:** Extracted `_execute_pack_loop()` from `execute_task()`. `execute_task` now
+loops over `specialist_ids`, running each pack in turn. Logs `pack_start` events for
+multi-pack runs; step names are prefixed with specialist ID (`engineering_step_0`,
+`research_step_0`) so the runlog clearly shows which pack each step belongs to.
+
+**Files:** `src/agent_fabric/application/execute_task.py`
+
+---
+
+### ~~P3-3: Context handoff and domain/HTTP updates~~ **DONE 2026-02-24**
+
+**What:** Each subsequent pack receives the previous pack's `finish_task` payload as
+context in its user message. Added `specialist_ids: List[str]` and `is_task_force`
+property to `RunResult`. Updated `http_api.py` `_meta` to include `specialist_ids`
+and `is_task_force`.
+
+**Files:** `src/agent_fabric/domain/models.py`, `src/agent_fabric/interfaces/http_api.py`
+
+---
+
+### ~~P3-4: Tests for Phase 3~~ **DONE 2026-02-24**
+
+**What:** Updated `test_capabilities.py` — replaced `test_mixed_prompt_routes_to_best_coverage`
+with `test_mixed_prompt_routes_to_task_force` and added two more task-force specific tests.
+New `tests/test_task_force.py` with 17 tests covering greedy selection, multi-pack recruitment,
+sequential execution, runlog structure, context handoff, and `RunResult` properties.
+Fast CI: **144 pass** (+22).
+
+**Files:** `tests/test_capabilities.py`, `tests/test_task_force.py` (new)
+
+---
+
+### ~~P3-5: Docs and STATE updated for Phase 3~~ **DONE 2026-02-24**
+
+**What:** BACKLOG.md Phase 3 section; STATE.md phase and CI count updated;
+PLAN.md Phase 3 deliverables ticked off.
+
+---
+
 ## Done
 
 | Item | Completed | Summary |
 |------|-----------|---------|
+| P3-1 through P3-5: Phase 3 multi-pack task force | 2026-02-24 | RecruitmentResult.specialist_ids (greedy selection); _execute_pack_loop(); sequential multi-pack execution with context handoff; pack_start events + prefixed step names; RunResult.specialist_ids + is_task_force; HTTP _meta updated; 17 new tests in test_task_force.py + 2 in test_capabilities.py. Fast CI: 144 pass (+22) |
 | P2-1 through P2-5: Phase 2 capability routing | 2026-02-24 | CAPABILITY_KEYWORDS + capabilities on SpecialistConfig; infer_capabilities(); RecruitmentResult; two-stage routing (caps → keyword fallback); recruitment runlog event; required_capabilities in RunResult + HTTP _meta; docs/CAPABILITIES.md; REQUIREMENTS FR2 + VISION §8 updated. Fast CI: 122 pass (+17) |
 | T3-5: Extract build_task() to domain | 2026-02-24 | build_task() in domain/models.py; (pack or "").strip() or None fixes subtle whitespace-only inconsistency between CLI and HTTP paths; exported from domain/__init__; 6 new tests |
 | T3-4: Config validation at load time | 2026-02-24 | @model_validator on FabricConfig rejects empty specialists dict; docstring marks extension point for future cross-reference checks; 3 new tests |

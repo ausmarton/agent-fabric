@@ -110,18 +110,20 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 ---
 
-## Phase 3: Multi-pack task force (optional next)
+## Phase 3: Multi-pack task force — **complete**
 
 **Goal:** For a single task, recruit and run **multiple** packs (e.g. engineering + research) that together form a task force. Orchestration may be sequential or coordinated.
 
-### Deliverables (Phase 3) — high level
+### Deliverables (Phase 3)
 
-| # | Deliverable | Verification |
-|---|-------------|--------------|
-| 3.1 | Task decomposition outputs *multiple* capability IDs when needed. | Tests and manual runs. |
-| 3.2 | Supervisor can start a “run” with multiple packs; shared or per-pack workspaces; combined runlog. | Run dir structure; runlog has multiple packs. |
-| 3.3 | Coordination: define how packs interact (e.g. handoff, shared context, or sequential sub-tasks). | Design doc + minimal implementation. |
-| 3.4 | Docs and STATE updated. | PLAN and STATE reflect Phase 3. |
+| # | Deliverable | Status | Verification |
+|---|-------------|--------|--------------|
+| 3.1 | Task decomposition outputs *multiple* capability IDs when needed. | Done | `infer_capabilities()` returns all matching caps; `_greedy_select_specialists()` covers multi-pack selection. `tests/test_task_force.py`. |
+| 3.2 | Supervisor runs multiple packs; shared workspace + combined runlog. | Done | `execute_task()` loops over `specialist_ids`; one run dir; `pack_start` events; `specialist_ids` on `RunResult`. |
+| 3.3 | Coordination: sequential handoff with context forwarding. | Done | Each pack receives previous pack's `finish_task` payload as context; step names prefixed by specialist ID. |
+| 3.4 | Docs and STATE updated. | Done | BACKLOG.md Phase 3 section; STATE.md; this PLAN updated. |
+
+**Phase 3 acceptance:** All 4 deliverables implemented; fast CI: **144 pass** (+22). `RecruitmentResult.is_task_force` and `RunResult.is_task_force` both work correctly for mixed-capability prompts.
 
 ---
 

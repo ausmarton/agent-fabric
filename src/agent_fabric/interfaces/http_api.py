@@ -100,6 +100,8 @@ async def run(req: RunRequest):
     out = dict(result.payload)
     out["_meta"] = {
         "pack": result.specialist_id,
+        "specialist_ids": result.specialist_ids,
+        "is_task_force": result.is_task_force,
         "run_dir": result.run_dir,
         "workspace": result.workspace_path,
         "model": result.model_name,

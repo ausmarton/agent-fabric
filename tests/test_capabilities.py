@@ -105,17 +105,41 @@ def test_capability_routing_selects_research():
     assert "systematic_review" in result.required_capabilities
 
 
-def test_mixed_prompt_routes_to_best_coverage():
-    """A prompt needing both code and research capabilities selects the pack
-    with the better coverage of required capabilities."""
-    # "build a systematic review tool" → code_execution + systematic_review
-    # engineering provides code_execution (1), research provides systematic_review (1)
-    # Tie → config order → engineering (first in DEFAULT_CONFIG)
+def test_mixed_prompt_routes_to_task_force():
+    """A prompt needing capabilities that span both packs recruits a task force.
+
+    "build a systematic review tool" needs code_execution (engineering) AND
+    systematic_review (research).  Neither pack alone can cover both, so the
+    greedy selector picks both — returning a task force.
+    """
     result = recruit_specialist(
         "build a tool that does a systematic review of arxiv papers",
         DEFAULT_CONFIG,
     )
-    # Both score 1 for the mixed prompt; engineering is first in config so wins.
-    assert result.specialist_id == "engineering"
+    assert result.is_task_force, "Mixed-capability prompt must recruit a task force"
+    assert "engineering" in result.specialist_ids
+    assert "research" in result.specialist_ids
     assert "code_execution" in result.required_capabilities
     assert "systematic_review" in result.required_capabilities
+
+
+def test_single_capability_prompt_is_not_task_force():
+    """A prompt that maps to a single pack does not form a task force."""
+    result = recruit_specialist("build a Python service", DEFAULT_CONFIG)
+    assert not result.is_task_force
+    assert result.specialist_ids == ["engineering"]
+
+
+def test_task_force_specialist_ids_in_config_order():
+    """Task force specialist_ids are always in config insertion order."""
+    result = recruit_specialist(
+        "build a tool that does a systematic review of arxiv papers",
+        DEFAULT_CONFIG,
+    )
+    # engineering is declared before research in DEFAULT_CONFIG.
+    specialists_list = list(DEFAULT_CONFIG.specialists.keys())
+    eng_idx = specialists_list.index("engineering")
+    res_idx = specialists_list.index("research")
+    assert eng_idx < res_idx
+    # specialist_ids must follow the same order.
+    assert result.specialist_ids.index("engineering") < result.specialist_ids.index("research")

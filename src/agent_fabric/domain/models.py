@@ -73,7 +73,15 @@ class LLMResponse:
 
 @dataclass
 class RunResult:
-    """Result of executing a task: run id, paths, and final payload."""
+    """Result of executing a task: run id, paths, and final payload.
+
+    For single-pack runs ``specialist_id`` and ``specialist_ids`` both refer to
+    the single specialist.  For multi-pack task forces ``specialist_ids`` lists
+    all packs that ran (in execution order) and ``specialist_id`` is the first
+    (primary) specialist for backward-compatible callers.
+
+    ``is_task_force`` is True when more than one specialist executed.
+    """
     run_id: RunId
     run_dir: str
     workspace_path: str
@@ -81,3 +89,9 @@ class RunResult:
     model_name: str
     payload: Dict[str, Any]
     required_capabilities: List[str] = field(default_factory=list)
+    specialist_ids: List[str] = field(default_factory=list)
+
+    @property
+    def is_task_force(self) -> bool:
+        """True when more than one specialist executed for this run."""
+        return len(self.specialist_ids) > 1
