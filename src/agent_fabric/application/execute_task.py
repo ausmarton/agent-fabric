@@ -65,6 +65,28 @@ async def execute_task(
     Raises:
         RecruitError: When a specialist id is not found in config.
     """
+    # --- cloud fallback wrapping -------------------------------------------------
+    # When cloud_fallback is configured, wrap the injected chat_client so each
+    # LLM call first tries the local model and re-issues to cloud when the policy
+    # triggers.  Absence of cloud_fallback config leaves chat_client unchanged.
+    if config.cloud_fallback:
+        cloud_cfg = config.models.get(config.cloud_fallback.model_key)
+        if cloud_cfg is None:
+            logger.warning(
+                "cloud_fallback.model_key %r not found in config.models; cloud fallback disabled",
+                config.cloud_fallback.model_key,
+            )
+        else:
+            from agent_fabric.infrastructure.chat import build_chat_client
+            from agent_fabric.infrastructure.chat.fallback import FallbackChatClient, FallbackPolicy
+            cloud_client = build_chat_client(cloud_cfg)
+            policy = FallbackPolicy(config.cloud_fallback.policy)
+            chat_client = FallbackChatClient(chat_client, cloud_client, cloud_cfg.model, policy)
+            logger.debug(
+                "Cloud fallback enabled: policy=%s cloud_model=%s",
+                config.cloud_fallback.policy, cloud_cfg.model,
+            )
+
     # --- recruit -----------------------------------------------------------------
     model_cfg = resolved_model_cfg or config.models.get(task.model_key) or config.models["quality"]
 
@@ -186,7 +208,7 @@ async def execute_task(
         run_id.value, specialist_ids, is_task_force,
     )
 
-    return RunResult(
+    result = RunResult(
         run_id=run_id,
         run_dir=run_dir,
         workspace_path=workspace_path,
@@ -196,6 +218,39 @@ async def execute_task(
         required_capabilities=required_capabilities,
         specialist_ids=specialist_ids,
     )
+
+    # Append to the cross-run index so past runs are searchable.
+    # Failure is non-fatal — log a warning and return the result regardless.
+    try:
+        from agent_fabric.infrastructure.workspace.run_index import RunIndexEntry, append_to_index
+        import time
+        workspace_root = str(_run_dir_to_workspace_root(run_dir))
+        entry = RunIndexEntry(
+            run_id=run_id.value,
+            timestamp=time.time(),
+            specialist_ids=specialist_ids,
+            prompt_prefix=task.prompt[:200],
+            summary=(
+                final_payload.get("summary")
+                or final_payload.get("executive_summary")
+                or ""
+            ),
+            workspace_path=workspace_path,
+            run_dir=run_dir,
+            routing_method=routing_method,
+            model_name=model_cfg.model,
+        )
+        append_to_index(workspace_root, entry)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to append to run index: %s", exc)
+
+    return result
+
+
+def _run_dir_to_workspace_root(run_dir: str) -> str:
+    """Derive workspace_root from run_dir (``{root}/runs/{run_id}`` → ``{root}``)."""
+    from pathlib import Path
+    return str(Path(run_dir).parent.parent)
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +317,19 @@ async def _execute_pack_loop(
                     max_tokens=model_cfg.max_tokens,
                 )
                 llm_span.set_attribute("tool_calls_returned", len(response.tool_calls))
+
+            # Drain pending cloud_fallback events from FallbackChatClient (if used).
+            # FallbackChatClient.pop_events() returns [] for plain ChatClient instances.
+            if hasattr(chat_client, "pop_events"):
+                for fb_event in chat_client.pop_events():
+                    run_repository.append_event(
+                        run_id, "cloud_fallback", fb_event, step=step_key,
+                    )
+                    logger.info(
+                        "Cloud fallback used: step=%s reason=%s local=%s cloud=%s",
+                        step_key, fb_event.get("reason"),
+                        fb_event.get("local_model"), fb_event.get("cloud_model"),
+                    )
 
             run_repository.append_event(
                 run_id,

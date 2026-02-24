@@ -88,6 +88,17 @@ class SpecialistConfig(BaseModel):
             "and dispatched via the MCP session at runtime."
         ),
     )
+    container_image: Optional[str] = Field(
+        None,
+        description=(
+            "Podman container image to run the specialist's shell tool inside, "
+            "e.g. 'python:3.12-slim'. When set, the registry wraps the pack with "
+            "ContainerisedSpecialistPack so every 'shell' tool call executes inside "
+            "an isolated Podman container with the workspace mounted at /workspace. "
+            "Requires Podman to be installed and the image to be available locally. "
+            "Default: None (no container; shell commands run on the host)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_mcp_server_names_unique(self) -> "SpecialistConfig":
@@ -99,6 +110,36 @@ class SpecialistConfig(BaseModel):
                 "Each MCP server must have a unique 'name'."
             )
         return self
+
+
+class CloudFallbackConfig(BaseModel):
+    """Configuration for cloud LLM fallback (P6-4).
+
+    When set on ``FabricConfig``, ``execute_task`` wraps the chat client with
+    ``FallbackChatClient``.  The local model is tried first; if the configured
+    policy triggers, the same call is re-issued to the cloud model instead.
+
+    Fallback is *explicit* — this config must be present and correctly wired
+    for any fallback to occur.  Absent config = identical behaviour to today.
+    """
+
+    model_key: str = Field(
+        ...,
+        description=(
+            "Key into ``config.models`` for the cloud fallback model "
+            "(e.g. 'cloud_quality').  Must exist in models when cloud_fallback is used."
+        ),
+    )
+    policy: str = Field(
+        "no_tool_calls",
+        description=(
+            "Trigger condition for falling back to cloud:\n"
+            "  'no_tool_calls' — local model returned plain text with no tool calls.\n"
+            "  'malformed_args' — a tool call has malformed JSON arguments (``_raw`` key).\n"
+            "  'always' — always use cloud (for debugging/testing only).\n"
+            "Unknown values are silently treated as 'never trigger' (no fallback)."
+        ),
+    )
 
 
 class TelemetryConfig(BaseModel):
@@ -120,6 +161,14 @@ class FabricConfig(BaseModel):
     models: Dict[str, ModelConfig]
     specialists: Dict[str, SpecialistConfig]
     telemetry: Optional[TelemetryConfig] = None
+    cloud_fallback: Optional[CloudFallbackConfig] = Field(
+        None,
+        description=(
+            "Cloud LLM fallback configuration.  When set, the local model is tried first "
+            "and the cloud model is used if the configured policy triggers.  Off by default "
+            "(None) — identical behaviour to prior versions when absent."
+        ),
+    )
 
     @model_validator(mode="after")
     def _specialists_not_empty(self) -> "FabricConfig":

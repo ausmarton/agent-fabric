@@ -2,17 +2,18 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-24. Fast CI: **243 pass** (T1 + T2 + T3 tiers complete; Phases 2, 3, 4, 5 complete).
+**Last updated:** 2026-02-25. Fast CI: **304 pass** (T1 + T2 + T3 tiers complete; Phases 2–6 complete; all P6-1 through P6-4 done).
 
 ---
 
-## Current phase: **Phase 5 complete → Phase 6 in progress**
+## Current phase: **Phase 6 complete**
 
-Phase 5 (MCP tool server support) is **complete**. All six deliverables (P5-1 through P5-6) are done. The `mcp` optional dep group is wired; `MCPAugmentedPack` wraps any specialist pack transparently when `mcp_servers` is configured.
+Phase 6 is **complete**. All four deliverables (P6-1 through P6-4) are done:
 
-**Post-Phase-5 correctness fix (committed with Phase 6 doc work):** `await pack.aopen()` was placed outside the `try/finally` block in `_execute_pack_loop`. If `aopen()` raised (e.g. MCP server fails to start), `aclose()` would never run, leaking partially-connected sessions. Fixed by moving `aopen()` inside the `try` block.
-
-Phase 6 has been planned (P6-1 through P6-4) in BACKLOG.md. Start with P6-1 (persistent cross-run memory / run index).
+- **P6-1:** Persistent cross-run run index (`run_index.jsonl`) + `fabric logs search`.
+- **P6-2:** Real MCP server smoke test (`tests/test_mcp_real_server.py`, `@pytest.mark.real_mcp`).
+- **P6-3:** Containerised workspace isolation — `ContainerisedSpecialistPack` runs `shell` inside Podman; `SpecialistConfig.container_image` triggers transparent wrapping.
+- **P6-4:** Cloud LLM fallback — `FallbackChatClient` + `FallbackPolicy`; `CloudFallbackConfig` on `FabricConfig`; `cloud_fallback` runlog events; auto-wrapping in `execute_task`.
 
 ---
 
@@ -138,8 +139,8 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 243 pass before touching code.
-3. Start the first non-done item (Phase 5 complete → **Phase 6 starts with P6-1** per BACKLOG.md).
+2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 257 pass before touching code.
+3. All Phase 6 items done — check BACKLOG.md for any new items or plan Phase 7.
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---

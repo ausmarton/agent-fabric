@@ -205,3 +205,49 @@ def logs_show(
     rprint(f"[bold]Run:[/bold] {run_id}  [dim]({len(shown)}/{len(events)} events)[/dim]")
     for ev in shown:
         console.print(Syntax(json.dumps(ev, indent=2, ensure_ascii=False), "json", theme="monokai"))
+
+
+@logs_app.command("search")
+def logs_search(
+    query: str = typer.Argument(..., help="Keyword to search for in past run prompts and summaries."),
+    workspace: str = typer.Option(
+        ".fabric", "--workspace", "-w", help="Workspace root (default: .fabric)."
+    ),
+    limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of results."),
+) -> None:
+    """Search past runs by keyword (matches prompt and summary)."""
+    from agent_fabric.infrastructure.workspace.run_index import search_index
+    import datetime
+    from rich.table import Table
+    from rich.console import Console
+
+    results = search_index(workspace, query, limit=limit)
+    if not results:
+        rprint(f"[dim]No runs matching '{query}' found in {workspace}/run_index.jsonl[/dim]")
+        return
+
+    table = Table(
+        title=f"Runs matching '{query}' ({workspace})",
+        show_header=True, header_style="bold",
+    )
+    table.add_column("Run ID", style="cyan", no_wrap=True)
+    table.add_column("Date", style="dim")
+    table.add_column("Specialists", style="green")
+    table.add_column("Prompt", overflow="fold")
+    table.add_column("Summary", overflow="fold")
+
+    for entry in results:
+        date = (
+            datetime.datetime.fromtimestamp(entry.timestamp).strftime("%Y-%m-%d %H:%M")
+            if entry.timestamp else "—"
+        )
+        specialists = ", ".join(entry.specialist_ids) if entry.specialist_ids else "—"
+        table.add_row(
+            entry.run_id,
+            date,
+            specialists,
+            entry.prompt_prefix[:60],
+            (entry.summary or "")[:60],
+        )
+
+    Console().print(table)

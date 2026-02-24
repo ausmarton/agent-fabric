@@ -14,7 +14,7 @@ referenced source files, and [DECISIONS.md](DECISIONS.md).
 **How to resume after an interruption**
 1. Read [STATE.md](STATE.md) — confirms current phase and last verified state.
 2. Read this file — find the first non-done item; that is what to work on.
-3. Run `pytest tests/ -k "not real_llm and not verify"` — confirm 243 pass before touching code.
+3. Run `pytest tests/ -k "not real_llm and not verify and not real_mcp"` — confirm 304 pass before touching code.
 4. Start the item; mark it IN PROGRESS here and in STATE.md.
 
 ---
@@ -521,7 +521,7 @@ Phase 6 starts now. These are the first non-done items. Work on P6-1 first.
 
 ---
 
-### P6-1: Persistent cross-run memory (run index + summary store)
+### ~~P6-1: Persistent cross-run memory (run index + summary store)~~ **DONE 2026-02-24**
 
 **Why:** Every run is currently a black box — the fabric cannot build on previous work, refer to past findings, or avoid repeating itself across conversations or tasks. The vision describes an enterprise assistant that accumulates context. Without memory, each task starts cold.
 
@@ -542,7 +542,7 @@ Phase 6 starts now. These are the first non-done items. Work on P6-1 first.
 
 ---
 
-### P6-2: Real MCP server smoke test (filesystem server)
+### ~~P6-2: Real MCP server smoke test (filesystem server)~~ **DONE 2026-02-25**
 
 **Why:** Phase 5 built all the MCP wiring but every test mocks the transport layer. We have never run a real MCP server end-to-end through the fabric. The `mcp` package is installed in dev but its integration with a real subprocess has never been verified.
 
@@ -552,16 +552,16 @@ Phase 6 starts now. These are the first non-done items. Work on P6-1 first.
 - Test: connect `MCPSessionManager`, call `list_tools()`, call `read_file` (or equivalent), assert result dict contains `"result"`.
 - A fixture `skip_if_npx_unavailable` that skips gracefully if `npx` is not in PATH.
 
-**Acceptance criteria:**
-- [ ] `pytest tests/test_mcp_real_server.py -k real_mcp -v` passes when `npx` + the filesystem server are available.
-- [ ] Test is deselected by default (`-k "not real_mcp"`).
-- [ ] Fast CI (243 pass) unaffected.
+**What was built:**
+- `tests/test_mcp_real_server.py`: 5 tests (`test_list_tools_returns_non_empty`, `test_owns_tool_prefix`, `test_read_file_via_call_tool`, `test_unknown_tool_returns_error`, `test_reconnect_after_disconnect`). Two fixtures: `skip_if_npx_unavailable` (checks `npx` in PATH + probes package), `skip_if_mcp_not_installed` (skips if `mcp` Python package absent). All 5 pass against real `@modelcontextprotocol/server-filesystem` server.
+- `pyproject.toml`: Added `[tool.pytest.ini_options] markers` with `real_llm` and `real_mcp` entries.
+- Fast CI: 257 pass (unchanged).
 
 **Files:** `tests/test_mcp_real_server.py` (new), `pyproject.toml` (add `real_mcp` marker)
 
 ---
 
-### P6-3: Containerised workspace isolation (Podman)
+### ~~P6-3: Containerised workspace isolation (Podman)~~ **DONE 2026-02-25**
 
 **Why:** The engineering pack runs shell commands in a shared workspace directory. There is no OS-level isolation — a rogue LLM call can reach the host filesystem beyond the workspace. The vision explicitly calls for Podman-based containment for specialist workers.
 
@@ -573,36 +573,29 @@ Phase 6 starts now. These are the first non-done items. Work on P6-1 first.
 - `SpecialistConfig.container_image: Optional[str]` — when set, the registry wraps with `ContainerisedSpecialistPack`.
 - Default: no container (existing behaviour unchanged).
 
-**Acceptance criteria:**
-- [ ] `SpecialistConfig(container_image="python:3.12-slim")` causes the engineering pack's shell tool to execute inside the container.
-- [ ] Workspace is mounted; files written in the container are visible on the host at `workspace_path`.
-- [ ] Tests: `tests/test_containerised_pack.py` — integration tests marked `@pytest.mark.podman` (skip if Podman unavailable); unit tests mock `subprocess.run`/Podman API.
-- [ ] Fast CI unaffected.
+**What was built:**
+- `infrastructure/specialists/containerised.py`: `ContainerisedSpecialistPack` — starts `podman run -d --rm -v workspace:/workspace:Z image sleep infinity` on `aopen()`, runs shell via `podman exec -w /workspace`, stops container on `aclose()`. Applies command allowlist for defence-in-depth. `:Z` volume option for SELinux hosts (Fedora/RHEL). Calls `inner.aopen()`/`inner.aclose()` to propagate lifecycle to MCP sessions.
+- `config/schema.py`: `container_image: Optional[str]` field on `SpecialistConfig`.
+- `registry.py`: Wraps with `ContainerisedSpecialistPack` after MCP wrap when `container_image` is set.
+- `pyproject.toml`: Added `podman` marker.
+- `tests/test_containerised_pack.py`: 26 tests — 22 unit (mocked subprocess) + 4 `@pytest.mark.podman` integration (run against real python:3.11-slim; all pass).
+- Fast CI: 283 pass (+26).
 
-**Files:** `infrastructure/specialists/containerised.py` (new), `config/schema.py`, `infrastructure/specialists/registry.py`
+**Files:** `infrastructure/specialists/containerised.py` (new), `config/schema.py`, `infrastructure/specialists/registry.py`, `pyproject.toml`, `tests/test_containerised_pack.py` (new)
 
 ---
 
-### P6-4: Cloud LLM fallback (quality/capability gate)
+### ~~P6-4: Cloud LLM fallback (quality/capability gate)~~ **DONE 2026-02-25**
 
 **Why:** ADR-008 defines the policy: cloud only when the local model cannot meet the quality or capability bar, not on connection failure. Phase 4 added `ModelConfig.backend = "generic"` and `GenericChatClient`. The fallback logic itself — detecting "local cannot meet bar" and routing to a cloud model — is missing.
 
-**What to build:**
-- A `FallbackChatClient(local: ChatClient, cloud: ChatClient, policy: FallbackPolicy)` that:
-  - Runs the local model first.
-  - Evaluates a simple `FallbackPolicy` (configurable): e.g. `response_too_short`, `tool_calls_malformed`, `explicit_capability_flag_on_task`.
-  - If policy triggers: re-runs the same call against the cloud model.
-  - Logs a `cloud_fallback` event to the runlog when triggered.
-- `FabricConfig.cloud_fallback: Optional[CloudFallbackConfig]` — off by default.
-- Explicit, not automatic: the policy must be configured; no silent fallback.
+**What was built:**
+- `infrastructure/chat/fallback.py`: `FallbackPolicy(mode)` — evaluates `LLMResponse` against `"no_tool_calls"` / `"malformed_args"` / `"always"` policies (unknown mode = never trigger). `FallbackChatClient(local, cloud, cloud_model, policy)` — calls local first; if policy triggers, calls cloud and queues a `cloud_fallback` event in `pop_events()`.
+- `config/schema.py`: `CloudFallbackConfig(model_key, policy="no_tool_calls")` + `cloud_fallback: Optional[CloudFallbackConfig]` on `FabricConfig`. Defaults to `None` — identical behaviour when absent.
+- `execute_task.py`: Auto-wraps injected `chat_client` with `FallbackChatClient` when `config.cloud_fallback` is set (local import + `build_chat_client` for cloud). Drains `pop_events()` after each LLM call and logs `cloud_fallback` runlog events with `reason`, `local_model`, `cloud_model`.
+- `tests/test_chat_fallback.py`: 21 tests — policy unit tests (8), client unit tests (8), config tests (3), execute_task integration tests (2). All mocked; no real cloud call needed. Fast CI: 304 pass (+21).
 
-**Acceptance criteria:**
-- [ ] `cloud_fallback` is `None` by default; behaviour identical to current when absent.
-- [ ] With a configured policy, a response failing the quality check causes the call to be re-issued to the cloud model.
-- [ ] `cloud_fallback` event appears in runlog with `reason`, `local_model`, `cloud_model`.
-- [ ] Tests: mocked; no real cloud call needed for unit tests. Fast CI green.
-
-**Files:** `infrastructure/chat/fallback.py` (new), `config/schema.py`, `application/execute_task.py`
+**Files:** `infrastructure/chat/fallback.py` (new), `config/schema.py`, `application/execute_task.py`, `tests/test_chat_fallback.py` (new)
 
 ---
 
@@ -610,6 +603,9 @@ Phase 6 starts now. These are the first non-done items. Work on P6-1 first.
 
 | Item | Completed | Summary |
 |------|-----------|---------|
+| P6-4: Cloud LLM fallback | 2026-02-25 | FallbackPolicy (no_tool_calls / malformed_args / always) + FallbackChatClient with pop_events(); CloudFallbackConfig on FabricConfig; execute_task auto-wraps + logs cloud_fallback runlog events. 21 tests, all mocked. Fast CI: 304 pass (+21). |
+| P6-3: Containerised workspace isolation (Podman) | 2026-02-25 | ContainerisedSpecialistPack — podman run/exec/stop lifecycle; :Z SELinux volume label; shell intercepted, other tools delegated; container_image on SpecialistConfig; registry wraps after MCP; 26 tests (22 unit + 4 real Podman). Fast CI: 283 pass (+26). |
+| P6-2: Real MCP server smoke test | 2026-02-25 | tests/test_mcp_real_server.py — 5 tests using @modelcontextprotocol/server-filesystem via npx; fixtures skip gracefully when npx or mcp package absent; all 5 pass end-to-end. pyproject.toml: real_llm + real_mcp markers declared. Fast CI: 257 pass (unchanged). |
 | P5-1 through P5-6: Phase 5 MCP tool server support | 2026-02-24 | MCPServerConfig + mcp_servers on SpecialistConfig; execute_tool async + aopen/aclose lifecycle; MCPSessionManager + converter; MCPAugmentedPack wrapper; registry transparent wrap; [mcp] optional dep. Fast CI: 243 pass (+34) |
 | P4-1 through P4-4: Phase 4 observability + multi-backend LLM | 2026-02-24 | GenericChatClient + build_chat_client() factory + ModelConfig.backend; fabric logs list/show CLI; OpenTelemetry no-op shim + optional real OTEL (console/otlp); TelemetryConfig schema; execute_task spans (execute_task, llm_call, tool_call); setup_telemetry() wired into CLI + HTTP API lifespan; [otel] pyproject.toml extra. Fast CI: 194 pass (+50) |
 | P3-1 through P3-5: Phase 3 multi-pack task force | 2026-02-24 | RecruitmentResult.specialist_ids (greedy selection); _execute_pack_loop(); sequential multi-pack execution with context handoff; pack_start events + prefixed step names; RunResult.specialist_ids + is_task_force; HTTP _meta updated; 17 new tests in test_task_force.py + 2 in test_capabilities.py. Fast CI: 144 pass (+22) |

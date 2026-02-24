@@ -28,6 +28,11 @@ fabric = "agent_fabric.interfaces.cli:app"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "real_llm: marks tests that require a live LLM (deselect with -k 'not real_llm')",
+    "real_mcp: marks tests that require a real MCP server via npx (deselect with -k 'not real_mcp')",
+    "podman: marks tests that require Podman and a pulled container image (deselect with -k 'not podman')",
+]
 
 [tool.ruff]
 line-length = 100

@@ -106,6 +106,16 @@ class ConfigSpecialistRegistry(SpecialistRegistry):
                 specialist_id, len(sessions),
             )
 
+        if spec_cfg.container_image:
+            from agent_fabric.infrastructure.specialists.containerised import (
+                ContainerisedSpecialistPack,
+            )
+            pack = ContainerisedSpecialistPack(pack, spec_cfg.container_image, workspace_path)
+            logger.debug(
+                "Wrapped pack %r with ContainerisedSpecialistPack (image=%r)",
+                specialist_id, spec_cfg.container_image,
+            )
+
         return pack
 
     def list_ids(self) -> List[str]:
