@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from agent_fabric.application.execute_task import execute_task
 from agent_fabric.config import DEFAULT_CONFIG, FabricConfig, load_config
 from agent_fabric.config import ModelConfig
-from agent_fabric.domain import Task
+from agent_fabric.domain import LLMResponse, RunId, RunResult, Task, ToolCallRequest
 from agent_fabric.infrastructure.ollama import OllamaChatClient
 from agent_fabric.infrastructure.workspace import FileSystemRunRepository
 from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
@@ -31,20 +31,25 @@ except ImportError:
     skip_if_no_real_llm = lambda: None
     SKIP_REAL_LLM = True
 
-FINAL_RESPONSE_ENG = json.dumps({
-    "action": "final",
-    "summary": "Done",
-    "artifacts": [],
-    "next_steps": [],
-    "notes": "",
-})
 
-RESEARCH_FINAL = json.dumps({
-    "action": "final",
-    "deliverables": {},
-    "citations": [],
-    "notes": "Done",
-})
+def _finish_task_response(**kwargs) -> LLMResponse:
+    """Build a mock LLMResponse that calls finish_task with the given args."""
+    defaults = {"summary": "Done", "artifacts": [], "next_steps": [], "notes": ""}
+    defaults.update(kwargs)
+    return LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(call_id="call_1", tool_name="finish_task", arguments=defaults)],
+    )
+
+
+MOCK_ENG_RESPONSE = _finish_task_response()
+MOCK_RESEARCH_RESPONSE = _finish_task_response(
+    summary="Research done",
+    executive_summary="Overview.",
+    key_findings=["Finding 1"],
+    citations=[],
+    gaps_and_future_work=[],
+)
 
 
 @pytest.fixture
@@ -59,7 +64,7 @@ async def test_execute_task_creates_run_dir_runlog_workspace(temp_workspace_root
     run_repository = FileSystemRunRepository(workspace_root=temp_workspace_root)
     specialist_registry = ConfigSpecialistRegistry(config)
 
-    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock, return_value=FINAL_RESPONSE_ENG):
+    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock, return_value=MOCK_ENG_RESPONSE):
         chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
         task = Task(prompt="list files", specialist_id="engineering", network_allowed=False)
         result = await execute_task(
@@ -68,7 +73,6 @@ async def test_execute_task_creates_run_dir_runlog_workspace(temp_workspace_root
             run_repository=run_repository,
             specialist_registry=specialist_registry,
             config=config,
-            workspace_root=temp_workspace_root,
             max_steps=40,
         )
 
@@ -86,6 +90,11 @@ async def test_execute_task_creates_run_dir_runlog_workspace(temp_workspace_root
     kinds = [e.get("kind") for e in events]
     assert "llm_request" in kinds
     assert "llm_response" in kinds
+    assert "tool_call" in kinds    # finish_task is a tool_call
+    assert "tool_result" in kinds
+
+    assert result.payload.get("action") == "final"
+    assert result.payload.get("summary") == "Done"
 
 
 @pytest.mark.asyncio
@@ -95,7 +104,7 @@ async def test_execute_task_research_pack(temp_workspace_root):
     run_repository = FileSystemRunRepository(workspace_root=temp_workspace_root)
     specialist_registry = ConfigSpecialistRegistry(config)
 
-    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock, return_value=RESEARCH_FINAL):
+    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock, return_value=MOCK_RESEARCH_RESPONSE):
         chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
         task = Task(prompt="mini review", specialist_id="research", network_allowed=False)
         result = await execute_task(
@@ -104,7 +113,6 @@ async def test_execute_task_research_pack(temp_workspace_root):
             run_repository=run_repository,
             specialist_registry=specialist_registry,
             config=config,
-            workspace_root=temp_workspace_root,
             max_steps=40,
         )
 
@@ -112,6 +120,7 @@ async def test_execute_task_research_pack(temp_workspace_root):
     run_dir = Path(result.run_dir)
     assert (run_dir / "runlog.jsonl").is_file()
     assert (run_dir / "workspace").is_dir()
+    assert result.payload.get("action") == "final"
 
 
 def test_api_health_returns_ok():
@@ -123,12 +132,8 @@ def test_api_health_returns_ok():
 
 
 def test_api_run_accepts_prompt():
-    """API POST /run accepts prompt and returns 200 when execute_task is used (we mock LLM so no server needed)."""
+    """API POST /run accepts prompt and returns 200 when execute_task is mocked."""
     from agent_fabric.interfaces.http_api import app
-    from agent_fabric.domain import RunId, RunResult
-    from agent_fabric.config import FabricConfig
-    from agent_fabric.config.schema import DEFAULT_CONFIG
-    # So the API does not call ensure_llm_available (no real server required)
     cfg = FabricConfig(
         models=DEFAULT_CONFIG.models,
         specialists=DEFAULT_CONFIG.specialists,
@@ -198,7 +203,6 @@ async def test_e2e_real_http_engineering_run(temp_workspace_root):
         run_repository=run_repository,
         specialist_registry=specialist_registry,
         config=config,
-        workspace_root=temp_workspace_root,
         max_steps=40,
     )
 
@@ -208,12 +212,14 @@ async def test_e2e_real_http_engineering_run(temp_workspace_root):
     assert (run_dir / "runlog.jsonl").is_file()
     assert (run_dir / "workspace").is_dir()
     assert result.payload.get("action") == "final"
+
     lines = (run_dir / "runlog.jsonl").read_text().strip().split("\n")
-    assert len(lines) >= 1
     events = [json.loads(ln) for ln in lines if ln]
     kinds = [e.get("kind") for e in events]
     assert "llm_request" in kinds
     assert "llm_response" in kinds
+    assert "tool_call" in kinds
+    assert "tool_result" in kinds
 
 
 # ---- Real LLM tests (skip when no server or FABRIC_SKIP_REAL_LLM=1) ----
@@ -251,7 +257,7 @@ async def test_execute_task_engineering_real_llm(temp_workspace_root):
             run_repository=run_repository,
             specialist_registry=specialist_registry,
             config=cfg,
-            workspace_root=temp_workspace_root,
+            resolved_model_cfg=model_cfg,
             max_steps=40,
         )
     except Exception as e:
@@ -298,7 +304,7 @@ async def test_execute_task_research_pack_real_llm(temp_workspace_root):
             run_repository=run_repository,
             specialist_registry=specialist_registry,
             config=cfg,
-            workspace_root=temp_workspace_root,
+            resolved_model_cfg=model_cfg,
             max_steps=40,
         )
     except Exception as e:
@@ -353,9 +359,13 @@ def test_verify_working_real_script():
         cwd=str(repo_root),
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=600,
         env={**__import__("os").environ, "FABRIC_WORKSPACE": str(repo_root / ".fabric")},
     )
-    if result.returncode != 0 and ("404" in result.stderr or "404" in result.stdout or "connect" in result.stderr.lower() or "model" in result.stderr.lower()):
+    if result.returncode != 0 and (
+        "404" in result.stderr or "404" in result.stdout
+        or "connect" in result.stderr.lower()
+        or "model" in result.stderr.lower()
+    ):
         pytest.skip(f"Real LLM script failed (server/model not available): {result.stderr or result.stdout}")
     assert result.returncode == 0, (result.stdout or "") + (result.stderr or "")

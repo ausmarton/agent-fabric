@@ -11,12 +11,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def real_llm_reachable():
-    """
-    Return (config, model_cfg) if the configured default LLM is reachable, else None.
-    Used to skip real-LLM tests when no server is available (e.g. CI without Ollama).
+    """Return ``(cfg, resolved_model_cfg)`` if a live LLM is reachable, else ``None``.
+
+    Uses ``resolve_llm`` so the returned model config points at the *actual*
+    available model on the server (which may differ from the configured default
+    if that model hasn't been pulled).
     """
     from agent_fabric.config import load_config
     from agent_fabric.infrastructure.llm_bootstrap import _check_reachable
+    from agent_fabric.infrastructure.llm_discovery import resolve_llm
 
     cfg = load_config()
     model_cfg = cfg.models.get("quality") or cfg.models.get("fast")
@@ -27,7 +30,14 @@ def real_llm_reachable():
             return None
     except Exception:
         return None
-    return (cfg, model_cfg)
+
+    # Resolve the actual available model so tests don't get a 404 for the
+    # configured but not-yet-pulled default.
+    try:
+        resolved = resolve_llm(cfg, "quality")
+        return cfg, resolved.model_config
+    except Exception:
+        return None
 
 
 def skip_if_no_real_llm():

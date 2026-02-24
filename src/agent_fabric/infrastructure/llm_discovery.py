@@ -8,6 +8,7 @@ Ollama (default), vLLM, etc.—and pick a model that matches config or the best 
 
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -106,17 +107,23 @@ def _is_ollama_chat_capable(m: dict) -> bool:
 
 
 def _param_size_sort_key(name: str, details: dict | None) -> tuple:
-    """Sort key: param size as number (for ordering). Smaller = faster for fallback. Unknown size = 999 so we don't pick a huge model."""
+    """Sort key: param size as float billions (smaller = faster / preferred fallback).
+
+    Parses Ollama ``parameter_size`` strings such as ``"8.0B"``, ``"15B"``,
+    ``"33.4B"``, ``"334M"`` into comparable floats.  Unknown size sorts last.
+    """
     param = (details or {}).get("parameter_size") or ""
-    num = 0
-    for c in param:
-        if c.isdigit():
-            num = num * 10 + int(c)
-        elif c in "bB":
-            break
-    if num == 0 and not param.strip():
-        num = 999  # unknown size: sort last so we prefer known small models
-    return (num, name)
+    m = re.match(r"([\d.]+)\s*([BbMmKk])", param.strip())
+    if not m:
+        return (999.0, name)  # unknown → deprioritise
+    val = float(m.group(1))
+    unit = m.group(2).upper()
+    if unit == "K":
+        val /= 1_000_000.0
+    elif unit == "M":
+        val /= 1_000.0
+    # "B" → already in billions
+    return (val, name)
 
 
 def select_model(

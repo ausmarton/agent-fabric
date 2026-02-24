@@ -1,8 +1,7 @@
-"""Tests for specialist packs (engineering, research) and tool lists."""
+"""Tests for specialist packs (engineering, research): tool lists and finish_tool."""
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 
 import pytest
 from agent_fabric.infrastructure.specialists.engineering import build_engineering_pack
@@ -11,11 +10,20 @@ from agent_fabric.infrastructure.specialists.research import build_research_pack
 
 def test_engineering_pack_has_tools():
     with tempfile.TemporaryDirectory() as d:
-        pack = build_engineering_pack(d, _network_allowed=False)
+        pack = build_engineering_pack(d, network_allowed=False)
         assert "shell" in pack.tool_names
         assert "read_file" in pack.tool_names
         assert "write_file" in pack.tool_names
         assert "list_files" in pack.tool_names
+
+
+def test_engineering_pack_finish_tool_in_definitions():
+    """finish_task must appear in tool_definitions so the LLM knows to call it."""
+    with tempfile.TemporaryDirectory() as d:
+        pack = build_engineering_pack(d, network_allowed=False)
+        names = [t["function"]["name"] for t in pack.tool_definitions]
+        assert "finish_task" in names
+        assert pack.finish_tool_name == "finish_task"
 
 
 def test_research_pack_network_allowed_has_web_tools():
@@ -34,3 +42,23 @@ def test_research_pack_no_network_omits_web_tools():
         assert "write_file" in pack.tool_names
         assert "read_file" in pack.tool_names
         assert "list_files" in pack.tool_names
+
+
+def test_research_pack_finish_tool_in_definitions():
+    """finish_task present regardless of network_allowed."""
+    with tempfile.TemporaryDirectory() as d:
+        pack = build_research_pack(d, network_allowed=False)
+        names = [t["function"]["name"] for t in pack.tool_definitions]
+        assert "finish_task" in names
+        assert pack.finish_tool_name == "finish_task"
+
+
+def test_tool_definitions_are_valid_openai_format():
+    """Every tool definition must have type=function and a function.name."""
+    with tempfile.TemporaryDirectory() as d:
+        pack = build_engineering_pack(d, network_allowed=False)
+        for td in pack.tool_definitions:
+            assert td.get("type") == "function"
+            assert "function" in td
+            assert "name" in td["function"]
+            assert "parameters" in td["function"]

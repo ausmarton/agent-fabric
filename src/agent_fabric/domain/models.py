@@ -1,9 +1,10 @@
-"""Domain models: RunId, Task, RunResult. Pure data, no I/O."""
+"""Domain models: RunId, Task, RunResult, ToolCallRequest, LLMResponse. Pure data, no I/O."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List
+import json
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -16,9 +17,33 @@ class RunId:
 class Task:
     """User task: prompt and optional constraints."""
     prompt: str
-    specialist_id: str | None = None  # If set, use this specialist; else recruit
+    specialist_id: Optional[str] = None  # If set, use this specialist; else recruit
     model_key: str = "quality"
     network_allowed: bool = True
+
+
+@dataclass
+class ToolCallRequest:
+    """A single tool call requested by the LLM in a response."""
+    call_id: str        # Opaque ID, used to correlate with tool results in the message history
+    tool_name: str
+    arguments: Dict[str, Any]
+
+
+@dataclass
+class LLMResponse:
+    """Response from the LLM after a chat turn.
+
+    Either the LLM returns tool calls (``tool_calls`` non-empty, ``content`` typically
+    None/empty) or it returns a plain text response (``content`` set, ``tool_calls``
+    empty).  The execute-task loop uses ``has_tool_calls`` to decide the next step.
+    """
+    content: Optional[str]
+    tool_calls: List[ToolCallRequest] = field(default_factory=list)
+
+    @property
+    def has_tool_calls(self) -> bool:
+        return bool(self.tool_calls)
 
 
 @dataclass
@@ -30,4 +55,3 @@ class RunResult:
     specialist_id: str
     model_name: str
     payload: Dict[str, Any]
-    # Optional: required_capabilities, selected_specialists (for future multi-pack)

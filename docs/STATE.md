@@ -2,7 +2,7 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-23. **Full validation** (real LLM, all 42 tests) is required to prove the system works; see Phase 1 verification gate below.
+**Last updated:** 2026-02-24. **Full validation** (real LLM, all 45 fast + 4 real-LLM tests) is required to prove the system works; see Phase 1 verification gate below.
 
 ---
 
@@ -42,11 +42,11 @@ Phase 1 is **complete**. All deliverables and the verification gate are done. Ne
 - [x] **REQUIREMENTS:** Manual validation items 1–4 in REQUIREMENTS.md hold (CLI help, routing, run structure, API health).
 - [x] **E2E (real LLM):** With a real LLM available, `python scripts/verify_working_real.py` → exits 0; runlog has tool_call and tool_result; workspace has artifacts. Same is asserted by the real-LLM pytest tests when run via `validate_full.py`.
 
-**Fast CI:** `FABRIC_SKIP_REAL_LLM=1 pytest tests/ -v` → 38 pass, 4 skip. Use for quick feedback on wiring and unit/integration behaviour; it does not replace the need to run real-LLM E2E for integration assurance.
+**Fast CI:** `pytest tests/ -k "not real_llm and not verify"` → **45 pass** (4 real-LLM tests deselected). Use for quick feedback on wiring and unit/integration behaviour; it does not replace the need to run real-LLM E2E for integration assurance.
 
-**Phase 1 complete.** Full validation requires running `scripts/validate_full.py` (or pytest with a real LLM) so all 42 tests run and pass. Next: Phase 2.
+**Phase 1 complete.** Full validation (2026-02-24): fast CI 45 pass; all 4 real-LLM E2E tests pass against Ollama 0.12.11 with llama3.1:8b (resolve_llm auto-discovers the available model). `verify_working_real.py` exits 0. Next: Phase 2.
 
-**Verification passes (multi-pass checklist):** See [VERIFICATION_PASSES.md](VERIFICATION_PASSES.md). Last run 2026-02-23: Pass 1 (fast CI) 38 pass + 4 skip; Pass 2 (CLI, run dir) OK; Pass 3 (API health 200, POST 503 without LLM) OK; Pass 4 (full validation) and Pass 5 (live demo) require a real LLM and an available model (e.g. `ollama pull qwen2.5:7b`).
+**Verification passes (multi-pass checklist):** See [VERIFICATION_PASSES.md](VERIFICATION_PASSES.md). Last run 2026-02-24: fast CI 45 pass; real-LLM tests (engineering, research, API, verify_script) all PASS with llama3.1:8b on Ollama 0.12.11.
 
 ---
 
@@ -121,9 +121,21 @@ fabric serve
 
 ---
 
+## Architecture changes (2026-02-24 refactor)
+
+The tool loop was completely reworked from a fragile JSON-in-content protocol to **native OpenAI function calling**:
+
+- `ChatClient.chat()` now accepts `tools: list[dict] | None` and returns `LLMResponse` (not `str`)
+- `LLMResponse` + `ToolCallRequest` are domain types in `domain/models.py`
+- `SpecialistPack` now has `tool_definitions` and `finish_tool_name` properties
+- `execute_task` runs a proper tool-calling loop; `finish_task` tool call signals completion
+- `OllamaChatClient` detects “does not support tools” in 400 responses and raises a clear error
+- `_param_size_sort_key` fixed: parses “8.0B” as 8.0 not 80 (was causing sqlcoder:15b to be selected over llama3.1:8b)
+- `resolve_llm` is called via `asyncio.to_thread` in the FastAPI handler
+
 ## Blockers / open questions
 
-- None at last update. (e.g. “Need LLM server URL for E2E”) so the next session can unblock.
+- None at last update.
 
 ---
 

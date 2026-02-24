@@ -3,7 +3,7 @@
 Verify the fabric with a REAL LLM: run a task against the configured server,
 then check that the model actually used tools and produced artifacts.
 
-We use Ollama by default. Run: ollama serve && ollama pull qwen2.5:7b (and optionally qwen2.5:14b).
+Uses Ollama by default. Run: ollama serve && ollama pull qwen2.5:7b (or any model).
 To use another backend, set FABRIC_CONFIG_PATH to a config that points at it.
 
 Run from repo root: python scripts/verify_working_real.py
@@ -15,7 +15,6 @@ import json
 import os
 import sys
 
-# Repo root
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
@@ -43,9 +42,8 @@ def main():
         print("Start Ollama (ollama serve), pull a chat model (ollama pull llama3.1:8b), then retry.")
         return 1
 
-    base_url = resolved.base_url
-    print("Using LLM at:", base_url, "model:", resolved.model)
-    print("Running real engineering task: create a small Python file + test, then list files...")
+    print("Using LLM at:", resolved.base_url, "model:", resolved.model)
+    print("Running real engineering task: create a file, then list workspace files...")
     print()
 
     chat_client = OllamaChatClient(
@@ -56,8 +54,10 @@ def main():
     run_repository = FileSystemRunRepository(workspace_root=os.environ["FABRIC_WORKSPACE"])
     specialist_registry = ConfigSpecialistRegistry(cfg)
     task = Task(
-        prompt="Create a file hello.txt containing the line 'Hello World'. "
-        "Then run the shell command to list the workspace directory.",
+        prompt=(
+            "Create a file hello.txt containing the line 'Hello World'. "
+            "Then run the shell command to list the workspace directory."
+        ),
         specialist_id="engineering",
         model_key=model_key,
         network_allowed=False,
@@ -72,20 +72,16 @@ def main():
                 specialist_registry=specialist_registry,
                 config=cfg,
                 resolved_model_cfg=resolved.model_config,
-                workspace_root=os.environ["FABRIC_WORKSPACE"],
                 max_steps=40,
             )
         )
     except Exception as e:
         err = str(e).lower()
         if "connect" in err or "connection" in err or "refused" in err:
-            print("CONNECTION FAILED: No LLM server reached at", base_url)
+            print("CONNECTION FAILED: No LLM server reached at", resolved.base_url)
             print()
-            print("We use Ollama by default. Start Ollama, then run this script again:")
-            print("  ollama serve")
-            print("  ollama pull qwen2.5:7b")
-            print("Example (llama.cpp):  llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8000")
-            print("Example (llama-cpp-python):  python -m llama_cpp.server --model /path/to/model.gguf --port 8000")
+            print("Start Ollama, then run this script again:")
+            print("  ollama serve && ollama pull llama3.1:8b")
             print()
             print("Error:", e)
         else:
@@ -123,7 +119,7 @@ def main():
         return 1
     if not has_tool_call:
         print("FAIL: Runlog has no tool_call — the model did not use any tools.")
-        print("      We need to see real tool use (e.g. write_file, shell, list_files).")
+        print("      We need to see real tool use (e.g. write_file, shell, list_files, finish_task).")
         return 1
     if not has_tool_result:
         print("FAIL: Runlog has no tool_result — tool calls did not complete.")
@@ -141,7 +137,7 @@ def main():
 
     print("OK: Run completed with action =", result.payload.get("action"))
     print("OK: Runlog contains llm_request/llm_response and tool_call/tool_result")
-    print("OK: Model used tools (", sum(1 for k in kinds if k == "tool_call"), "tool call(s) )")
+    print("OK: Model used tools (", sum(1 for k in kinds if k == "tool_call"), "tool call(s))")
     if workspace_files:
         print("OK: Workspace has file(s):", workspace_files[:10])
     else:

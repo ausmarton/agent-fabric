@@ -26,7 +26,6 @@ def test_ollama_embedding_model_excluded():
 
 def test_select_model_prefers_chat_models():
     """When both chat and embedding models exist, selection uses only chat-capable list."""
-    # Simulate /api/tags with one embedding and one chat model
     all_models = [
         {"name": "bge-m3:latest", "model": "bge-m3:latest", "details": {"family": "bge-m3"}},
         {"name": "qwen2.5:7b", "model": "qwen2.5:7b", "details": {"family": "qwen2.5", "parameter_size": "7B"}},
@@ -35,19 +34,19 @@ def test_select_model_prefers_chat_models():
     names = [_ollama_model_name(m) for m in chat_only]
     assert "bge-m3:latest" not in names
     assert "qwen2.5:7b" in names
-    selected = select_model("qwen2.5:14b", chat_only, is_ollama=True)  # 14b not in list, so fallback to 7b
+    # 14b not in list → fallback to 7b
+    selected = select_model("qwen2.5:14b", chat_only, is_ollama=True)
     assert selected == "qwen2.5:7b"
 
 
-@pytest.mark.skip(reason="requires reachable Ollama or more mocking")
 def test_resolve_llm_filters_embedding_models():
-    """resolve_llm with mocked discover returns a chat model when only bge-m3 would otherwise be first."""
-    with patch("agent_fabric.infrastructure.llm_discovery.discover_ollama_models") as discover:
-        discover.return_value = [
-            {"name": "bge-m3:latest", "model": "bge-m3:latest", "details": {"family": "bge-m3"}},
-            {"name": "qwen2.5:7b", "model": "qwen2.5:7b", "details": {"family": "qwen2.5", "parameter_size": "7B"}},
-        ]
-        with patch("agent_fabric.infrastructure.llm_discovery.ensure_llm_available"):
+    """resolve_llm with mocked discover returns a chat model even when an embedding model is first."""
+    models = [
+        {"name": "bge-m3:latest", "model": "bge-m3:latest", "details": {"family": "bge-m3"}},
+        {"name": "qwen2.5:7b", "model": "qwen2.5:7b", "details": {"family": "qwen2.5", "parameter_size": "7B"}},
+    ]
+    with patch("agent_fabric.infrastructure.llm_discovery.discover_ollama_models", return_value=models):
+        with patch("agent_fabric.infrastructure.llm_bootstrap.ensure_llm_available", return_value=True):
             resolved = resolve_llm(DEFAULT_CONFIG, "quality")
-            assert resolved.model != "bge-m3:latest"
-            assert resolved.model == "qwen2.5:7b"
+    assert resolved.model != "bge-m3:latest"
+    assert resolved.model == "qwen2.5:7b"

@@ -1,13 +1,14 @@
-"""HTTP API: FastAPI app wired to execute_task (new architecture)."""
+"""HTTP API: FastAPI app wired to execute_task."""
 
 from __future__ import annotations
 
+import asyncio
 import os
+from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
 from agent_fabric.application.execute_task import execute_task
 from agent_fabric.config import load_config
@@ -39,10 +40,14 @@ def health():
 @app.post("/run")
 async def run(req: RunRequest):
     config = load_config()
+
+    # resolve_llm performs blocking I/O (HTTP probes, optional subprocess) so we
+    # run it on a thread-pool worker to avoid blocking the event loop.
     try:
-        resolved = resolve_llm(config, req.model_key)
+        resolved = await asyncio.to_thread(resolve_llm, config, req.model_key)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
     chat_client = OllamaChatClient(
         base_url=resolved.base_url,
         api_key=resolved.model_config.api_key,
@@ -65,13 +70,15 @@ async def run(req: RunRequest):
             specialist_registry=specialist_registry,
             config=config,
             resolved_model_cfg=resolved.model_config,
-            workspace_root=_workspace_root(),
             max_steps=40,
         )
     except httpx.ConnectError as e:
         raise HTTPException(
             status_code=503,
-            detail=f"LLM server unreachable ({resolved.base_url}): {e}. Install/start your backend or set local_llm_ensure_available: false.",
+            detail=(
+                f"LLM server unreachable ({resolved.base_url}): {e}. "
+                "Install/start your backend or set local_llm_ensure_available: false."
+            ),
         )
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
@@ -81,9 +88,9 @@ async def run(req: RunRequest):
             )
         raise HTTPException(
             status_code=503,
-            detail=f"LLM server error ({resolved.base_url}): {e.response.status_code}. Check backend and model.",
+            detail=f"LLM server error ({resolved.base_url}): {e.response.status_code}.",
         )
-    # Response shape compatible with old API: _meta + payload
+
     out = dict(result.payload)
     out["_meta"] = {
         "pack": result.specialist_id,

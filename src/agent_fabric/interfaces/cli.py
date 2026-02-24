@@ -1,4 +1,4 @@
-"""CLI: Typer app wired to execute_task (new architecture)."""
+"""CLI: Typer app wired to execute_task."""
 
 from __future__ import annotations
 
@@ -32,17 +32,19 @@ def run(
     prompt: str = typer.Argument(..., help="What you want the fabric to do."),
     pack: str = typer.Option("", help="Force a pack (engineering|research). Leave empty for auto-routing."),
     model_key: str = typer.Option("quality", help="Which model profile to use (quality|fast)."),
-    network_allowed: bool = typer.Option(True, help="Allow network tools (web)."),
+    network_allowed: bool = typer.Option(True, help="Allow network tools (web_search, fetch_url)."),
 ) -> None:
-    """Run a task end-to-end and print result + run directory. Discovers available backends and models; auto-pulls a default model if none exist."""
+    """Run a task end-to-end and print result + run directory."""
     config = load_config()
     try:
         resolved = resolve_llm(config, model_key)
     except RuntimeError as e:
         rprint(f"[red]{e}[/red]")
         sys.exit(1)
+
     rprint(f"[dim]Using model: {resolved.model} at {resolved.base_url}[/dim]")
     rprint("[dim]Running task...[/dim]")
+
     chat_client = OllamaChatClient(
         base_url=resolved.base_url,
         api_key=resolved.model_config.api_key,
@@ -66,7 +68,6 @@ def run(
                 specialist_registry=specialist_registry,
                 config=config,
                 resolved_model_cfg=resolved.model_config,
-                workspace_root=_workspace_root(),
                 max_steps=40,
             )
         )
@@ -80,8 +81,7 @@ def run(
     except httpx.ReadTimeout:
         rprint(
             f"[red]LLM read timeout.[/red] The model ({resolved.model}) took too long to respond.\n"
-            f"  Use a smaller/faster model: [bold]FABRIC_CONFIG_PATH=examples/ollama-fast-verify.json fabric run ...[/bold]\n"
-            "  Or increase timeout in your config (models.*.timeout_s, e.g. 600)."
+            f"  Use a smaller/faster model or increase timeout in config (models.*.timeout_s)."
         )
         sys.exit(1)
     except httpx.HTTPStatusError as e:
@@ -94,13 +94,16 @@ def run(
         elif e.response.status_code == 400:
             try:
                 err_body = e.response.json()
-                detail = err_body.get("error", {}).get("message") if isinstance(err_body.get("error"), dict) else err_body.get("message", str(err_body))
+                detail = (
+                    err_body.get("error", {}).get("message")
+                    if isinstance(err_body.get("error"), dict)
+                    else err_body.get("message", str(err_body))
+                )
             except Exception:
                 detail = e.response.text or str(e)
             rprint(
                 f"[red]LLM server returned 400 Bad Request.[/red]\n"
-                f"  URL: {resolved.base_url}\n  Model: {resolved.model}\n  Detail: {detail}\n"
-                "  The client retries with a minimal payload (model, messages, stream: false). If this persists, update Ollama or use a different backend."
+                f"  URL: {resolved.base_url}\n  Model: {resolved.model}\n  Detail: {detail}"
             )
         else:
             rprint(
@@ -122,6 +125,6 @@ def run(
 
 @app.command()
 def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
-    """Run the HTTP API (FastAPI)."""
+    """Run the HTTP API (FastAPI + uvicorn)."""
     import uvicorn
     uvicorn.run("agent_fabric.interfaces.http_api:app", host=host, port=port, reload=False)

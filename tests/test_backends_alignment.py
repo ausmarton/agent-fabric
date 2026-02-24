@@ -1,4 +1,8 @@
-"""Tests that implementation aligns with BACKENDS.md and REQUIREMENTS: backend-agnostic, local LLM default, clean lifecycle."""
+"""Tests that implementation aligns with BACKENDS.md and REQUIREMENTS.
+
+Verifies: backend-agnostic ChatClient port, local LLM default config, async-safe
+HTTP handler (resolve_llm called), run directory lifecycle.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ import pytest
 from agent_fabric.application.execute_task import execute_task
 from agent_fabric.config import FabricConfig, ModelConfig, load_config
 from agent_fabric.config.schema import DEFAULT_CONFIG
-from agent_fabric.domain import RunId, RunResult, Task
+from agent_fabric.domain import LLMResponse, RunId, RunResult, Task, ToolCallRequest
 from agent_fabric.infrastructure.llm_discovery import ResolvedLLM, resolve_llm
 from agent_fabric.infrastructure.workspace import FileSystemRunRepository
 from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
@@ -22,19 +26,27 @@ from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
 
 @pytest.mark.asyncio
 async def test_execute_task_uses_only_chat_client_chat_with_openai_params(tmp_path):
-    """Application layer depends only on ChatClient.chat(messages, model, temperature, top_p, max_tokens)."""
+    """Application layer depends only on ChatClient.chat(messages, model, tools, temperature, top_p, max_tokens)."""
     recorded = []
 
     class RecordingChatClient:
-        async def chat(self, messages, model, temperature=0.1, top_p=0.9, max_tokens=2048):
+        async def chat(self, messages, model, *, tools=None, temperature=0.1, top_p=0.9, max_tokens=2048):
             recorded.append({
                 "messages": messages,
                 "model": model,
+                "tools": tools,
                 "temperature": temperature,
                 "top_p": top_p,
                 "max_tokens": max_tokens,
             })
-            return json.dumps({"action": "final", "summary": "ok", "artifacts": [], "next_steps": [], "notes": ""})
+            return LLMResponse(
+                content=None,
+                tool_calls=[ToolCallRequest(
+                    call_id="c1",
+                    tool_name="finish_task",
+                    arguments={"summary": "ok", "artifacts": [], "next_steps": [], "notes": ""},
+                )],
+            )
 
     config = load_config()
     run_repository = FileSystemRunRepository(workspace_root=str(tmp_path))
@@ -47,7 +59,6 @@ async def test_execute_task_uses_only_chat_client_chat_with_openai_params(tmp_pa
         run_repository=run_repository,
         specialist_registry=specialist_registry,
         config=config,
-        workspace_root=str(tmp_path),
         max_steps=5,
     )
 
@@ -56,6 +67,9 @@ async def test_execute_task_uses_only_chat_client_chat_with_openai_params(tmp_pa
     assert "messages" in first and isinstance(first["messages"], list)
     assert first["model"] == config.models["quality"].model
     assert "temperature" in first and "top_p" in first and "max_tokens" in first
+    # tools should be passed (native tool calling)
+    assert "tools" in first
+    assert isinstance(first["tools"], list) and len(first["tools"]) > 0
 
 
 # ---- Config: local_llm_ensure_available default and opt-out ----
@@ -74,7 +88,6 @@ def test_config_base_url_and_model_are_backend_agnostic():
     assert mc.base_url.startswith("http")
     assert "/v1" in mc.base_url or mc.base_url.rstrip("/").endswith("11434")
     assert isinstance(mc.model, str) and len(mc.model) > 0
-    # Custom config can override to a different backend
     custom = FabricConfig(
         models={"x": ModelConfig(base_url="http://localhost:8000/v1", model="my-model")},
         specialists=DEFAULT_CONFIG.specialists,
@@ -83,11 +96,11 @@ def test_config_base_url_and_model_are_backend_agnostic():
     assert custom.models["x"].model == "my-model"
 
 
-# ---- API: resolve_llm used for discovery/selection; ensure_llm only when enabled ----
+# ---- API: resolve_llm used for discovery/selection ----
 
 
 def test_api_run_calls_resolve_llm():
-    """API /run calls resolve_llm so backend and model are discovered/selected (and LLM ensured when enabled)."""
+    """API /run calls resolve_llm (via asyncio.to_thread) so backend/model are discovered."""
     from agent_fabric.interfaces.http_api import app
     from fastapi.testclient import TestClient
 
@@ -123,7 +136,6 @@ def test_api_run_calls_resolve_llm():
 
 def test_api_run_skips_ensure_llm_available_when_opted_out():
     """When local_llm_ensure_available is False, resolve_llm does not call ensure_llm_available."""
-    from agent_fabric.infrastructure.llm_bootstrap import ensure_llm_available
     from agent_fabric.interfaces.http_api import app
     from fastapi.testclient import TestClient
 
