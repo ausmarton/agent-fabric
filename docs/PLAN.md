@@ -144,14 +144,32 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 ---
 
-## Phase 5+: Containerisation and enterprise scale (backlog)
+## Phase 5: MCP tool server support — **complete**
+
+**Goal:** Enable specialist packs to delegate tool calls to external MCP (Model Context Protocol) servers without writing custom Python adapters. Zero changes required to pack factories — just add `mcp_servers:` entries to the YAML/JSON config. The MCP session lifecycle (connect, call, disconnect) is managed by the framework around the tool loop.
+
+### Deliverables (Phase 5)
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 5.1 | Config schema: `MCPServerConfig` + `mcp_servers` on `SpecialistConfig` | Done | `config/schema.py`; stdio and SSE transports; validators; duplicate-name check; +6 tests in `test_config.py` |
+| 5.2 | Async `execute_tool` + `aopen`/`aclose` lifecycle | Done | `base.py`, `ports.py`, `execute_task.py` (_execute_pack_loop wrapped in try/finally); `_StubPack` in registry tests updated |
+| 5.3 | `MCPSessionManager` + `mcp_tool_to_openai_def` converter | Done | `infrastructure/mcp/session.py`, `converter.py`; guarded mcp imports; +12 mocked tests |
+| 5.4 | `MCPAugmentedPack` wrapper | Done | `infrastructure/mcp/augmented_pack.py`; asyncio.gather for connect/disconnect; +10 tests |
+| 5.5 | Registry wraps pack transparently | Done | `registry.py`; RuntimeError when mcp not installed; +6 tests in `test_mcp_registry.py` |
+| 5.6 | `pyproject.toml` + docs | Done | `mcp = ["mcp>=1.0"]` optional dep; `dev` dep includes mcp; all docs updated |
+
+**Phase 5 acceptance:** All 6 deliverables implemented; fast CI: **~242 pass** (+33 vs Phase 4). `SpecialistConfig(mcp_servers=[MCPServerConfig(...)])` in config causes `get_pack()` to return `MCPAugmentedPack`; tool loop calls `aopen()`/`aclose()`; MCP tools are prefixed `mcp__<name>__<tool>`.
+
+---
+
+## Phase 6+: Containerisation and enterprise scale (backlog)
 
 - **Containerised workers (e.g. Podman)** per specialist role, spun up on demand.
-- **MCP tool servers** for Confluence, Jira, GitHub (least-privilege, sandboxed).
 - **Persistent vector store** for enterprise RAG (metadata, staleness).
 - **Cloud fallback** when local model cannot meet the bar.
 
-Update PLAN with concrete deliverables when Phase 5 begins.
+Update PLAN with concrete deliverables when Phase 6 begins.
 
 ---
 
@@ -159,4 +177,4 @@ Update PLAN with concrete deliverables when Phase 5 begins.
 
 - **Resume by:** Reading STATE.md → PLAN.md (current phase) → run verification → do next deliverable.
 - **Always:** Keep STATE.md updated when completing or starting work; run `pytest tests/ -v` before considering a phase done.
-- **Value:** Phase 1 delivers a working, testable, documented fabric; Phase 2 aligns routing with the vision (task → capabilities → recruit); Phase 3 enables multi-pack task forces; Phase 4+ adds scale and enterprise features.
+- **Value:** Phase 1 delivers a working, testable, documented fabric; Phase 2 aligns routing with the vision (task → capabilities → recruit); Phase 3 enables multi-pack task forces; Phase 4 adds observability and multi-backend LLM; Phase 5 adds MCP tool server support.

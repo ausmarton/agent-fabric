@@ -89,7 +89,24 @@ class ConfigSpecialistRegistry(SpecialistRegistry):
                 "Set 'builder' in config to point at a pack factory function."
             )
 
-        return builder(workspace_path, network_allowed)
+        pack = builder(workspace_path, network_allowed)
+
+        if spec_cfg.mcp_servers:
+            try:
+                from agent_fabric.infrastructure.mcp import MCPAugmentedPack, MCPSessionManager
+            except ImportError as exc:
+                raise RuntimeError(
+                    "mcp_servers configured but 'mcp' package is not installed. "
+                    "Install with: pip install agent-fabric[mcp]"
+                ) from exc
+            sessions = [MCPSessionManager(s) for s in spec_cfg.mcp_servers]
+            pack = MCPAugmentedPack(pack, sessions)
+            logger.debug(
+                "Wrapped pack %r with MCPAugmentedPack (%d server(s))",
+                specialist_id, len(sessions),
+            )
+
+        return pack
 
     def list_ids(self) -> List[str]:
         return list(self._config.specialists.keys())

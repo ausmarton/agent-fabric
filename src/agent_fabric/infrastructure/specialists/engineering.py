@@ -54,12 +54,14 @@ _FINISH_TOOL_DEF = make_finish_tool_def(
 def build_engineering_pack(workspace_path: str, network_allowed: bool = False) -> BaseSpecialistPack:
     """Build the engineering specialist pack for the given workspace.
 
-    ``network_allowed`` is unused for engineering (shell commands may access the
-    network freely; the parameter exists for API consistency with the registry).
-    The sandbox restricts the *file system* to ``workspace_path``; shell commands
-    are limited to an allowlist.
+    ``network_allowed`` is forwarded to ``SandboxPolicy`` to record the caller's
+    intent.  Note: the shell sandbox does not currently enforce network blocking
+    (shell commands run as subprocesses and cannot be network-isolated without OS
+    controls such as namespaces).  This flag is stored so future enforcement can
+    be added without a signature change.  The sandbox does restrict the *file
+    system* to ``workspace_path``; shell commands are limited to an allowlist.
     """
-    policy = SandboxPolicy(root=Path(workspace_path), network_allowed=True)
+    policy = SandboxPolicy(root=Path(workspace_path), network_allowed=network_allowed)
 
     tools: Dict[str, Tuple[Dict[str, Any], Any]] = {
         "shell": (

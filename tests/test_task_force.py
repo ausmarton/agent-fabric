@@ -63,6 +63,26 @@ def _research_finish(call_id: str = "c2", summary: str = "Research done") -> LLM
     )
 
 
+def _tool_resp(call_id: str = "t0") -> LLMResponse:
+    """A list_files call used to satisfy the 'prior tool call' structural requirement."""
+    return LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(call_id=call_id, tool_name="list_files", arguments={})],
+    )
+
+
+def _routing_response(caps: list[str] | None = None) -> LLMResponse:
+    """Mock LLM routing response for llm_recruit_specialist."""
+    return LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(
+            call_id="r0",
+            tool_name="select_capabilities",
+            arguments={"capabilities": caps or ["code_execution", "systematic_review"]},
+        )],
+    )
+
+
 def _read_runlog(run_dir: str) -> list[dict]:
     lines = Path(run_dir, "runlog.jsonl").read_text().strip().splitlines()
     return [json.loads(ln) for ln in lines if ln]
@@ -215,7 +235,7 @@ async def test_task_force_runs_both_packs(tmp_path):
     """A mixed-capability prompt executes engineering then research packs."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_eng_finish(), _research_finish()],
+        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -230,7 +250,7 @@ async def test_task_force_runlog_has_pack_start_events(tmp_path):
     """Multi-pack runs log a pack_start event at the beginning of each pack."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_eng_finish(), _research_finish()],
+        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -248,7 +268,7 @@ async def test_task_force_runlog_step_names_are_pack_prefixed(tmp_path):
     """In a task force, step events use '{specialist_id}_step_N' naming."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_eng_finish(), _research_finish()],
+        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -264,7 +284,7 @@ async def test_task_force_shared_workspace(tmp_path):
     """Both packs in a task force write to the same workspace directory."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_eng_finish(), _research_finish()],
+        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -278,18 +298,19 @@ async def test_task_force_shared_workspace(tmp_path):
 async def test_task_force_context_passed_to_second_pack(tmp_path):
     """The second pack receives the first pack's finish payload as context.
 
-    We verify this by checking the runlog: the research pack's first LLM request
-    must follow a pack_start event, and we can inspect the message count is higher
-    than a fresh start (system + user with context).
+    We verify this by checking that the research pack's first LLM request starts
+    with exactly 2 messages (system prompt + user message containing the context
+    from engineering's finish payload) before any tool calls are added.
     """
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_eng_finish(summary="Created tool.py"), _research_finish()],
+        [_routing_response(), _tool_resp("t0"), _eng_finish(summary="Created tool.py"),
+         _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
-    # The research pack (2nd) gets a user message with context, so message_count
-    # at its first llm_request step must be >= 2 (system + user).
+    # The research pack (2nd) gets a user message with context; its first LLM
+    # request (before any tool turns are appended) has message_count = 2.
     research_llm_requests = [
         e for e in events
         if e["kind"] == "llm_request" and e.get("step", "").startswith("research_")
@@ -304,8 +325,8 @@ async def test_task_force_result_payload_is_from_last_pack(tmp_path):
     """RunResult.payload comes from the last pack's finish_task call."""
     result, _ = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_eng_finish(summary="Engineering done"),
-         _research_finish(summary="Research complete")],
+        [_routing_response(), _tool_resp("t0"), _eng_finish(summary="Engineering done"),
+         _tool_resp("t1"), _research_finish(summary="Research complete")],
         tmp_path=tmp_path,
     )
 
@@ -319,7 +340,7 @@ async def test_task_force_recruitment_event_includes_specialist_ids(tmp_path):
     """The recruitment runlog event includes specialist_ids (plural) and is_task_force."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_eng_finish(), _research_finish()],
+        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -335,12 +356,12 @@ async def test_task_force_recruitment_event_includes_specialist_ids(tmp_path):
 @pytest.mark.asyncio
 async def test_single_pack_run_is_not_a_task_force(tmp_path):
     """Single-specialist runs have is_task_force=False and specialist_ids of length 1."""
-    eng_finish = _eng_finish()
     config = load_config()
     run_repository = FileSystemRunRepository(workspace_root=str(tmp_path))
     specialist_registry = ConfigSpecialistRegistry(config)
     with patch.object(
-        OllamaChatClient, "chat", new_callable=AsyncMock, return_value=eng_finish
+        OllamaChatClient, "chat", new_callable=AsyncMock,
+        side_effect=[_tool_resp(), _eng_finish()],
     ):
         chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
         task = Task(prompt="test", specialist_id="engineering", network_allowed=False)
@@ -361,12 +382,12 @@ async def test_single_pack_run_is_not_a_task_force(tmp_path):
 @pytest.mark.asyncio
 async def test_single_pack_runlog_has_no_pack_start_events(tmp_path):
     """pack_start events are only emitted for task forces, not single-pack runs."""
-    eng_finish = _eng_finish()
     config = load_config()
     run_repository = FileSystemRunRepository(workspace_root=str(tmp_path))
     specialist_registry = ConfigSpecialistRegistry(config)
     with patch.object(
-        OllamaChatClient, "chat", new_callable=AsyncMock, return_value=eng_finish
+        OllamaChatClient, "chat", new_callable=AsyncMock,
+        side_effect=[_tool_resp(), _eng_finish()],
     ):
         chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
         task = Task(prompt="test", specialist_id="engineering", network_allowed=False)

@@ -18,7 +18,7 @@ from agent_fabric.config import FabricConfig, ModelConfig
 from agent_fabric.config.constants import MAX_LLM_CONTENT_IN_RUNLOG_CHARS
 from agent_fabric.domain import RecruitError, RunId, RunResult, Task
 from agent_fabric.application.ports import ChatClient, RunRepository, SpecialistRegistry
-from agent_fabric.application.recruit import recruit_specialist, RecruitmentResult
+from agent_fabric.application.recruit import llm_recruit_specialist, recruit_specialist, RecruitmentResult
 from agent_fabric.infrastructure.telemetry import get_tracer
 
 logger = logging.getLogger(__name__)
@@ -66,15 +66,28 @@ async def execute_task(
         RecruitError: When a specialist id is not found in config.
     """
     # --- recruit -----------------------------------------------------------------
+    model_cfg = resolved_model_cfg or config.models.get(task.model_key) or config.models["quality"]
+
     if task.specialist_id:
         specialist_ids: List[str] = [task.specialist_id]
         required_capabilities: List[str] = []
         routing_method = "explicit"
     else:
-        recruitment: RecruitmentResult = recruit_specialist(task.prompt, config)
+        routing_cfg = config.models.get(config.routing_model_key)
+        if routing_cfg is None:
+            logger.warning(
+                "routing_model_key %r not in config.models; using task model %r for routing",
+                config.routing_model_key, model_cfg.model,
+            )
+            routing_cfg = model_cfg
+        recruitment: RecruitmentResult = await llm_recruit_specialist(
+            task.prompt, config,
+            chat_client=chat_client,
+            model=routing_cfg.model,
+        )
         specialist_ids = recruitment.specialist_ids
         required_capabilities = recruitment.required_capabilities
-        routing_method = "capability_routing"
+        routing_method = recruitment.routing_method
 
     for sid in specialist_ids:
         if sid not in config.specialists:
@@ -101,8 +114,6 @@ async def execute_task(
         },
         step=None,
     )
-
-    model_cfg = resolved_model_cfg or config.models.get(task.model_key) or config.models["quality"]
 
     # --- pack loop ---------------------------------------------------------------
     # Each specialist gets a fresh message context.  Subsequent specialists receive
@@ -207,6 +218,8 @@ async def _execute_pack_loop(
     """Run one specialist pack's tool loop until ``finish_task`` or ``max_steps``.
 
     ``messages`` is mutated in place as the conversation accumulates.
+    ``pack.aopen()`` is called before the loop; ``pack.aclose()`` in a
+    ``finally`` block — ensuring MCP subprocess cleanup even on error.
 
     Returns the final payload dict (always has ``action: "final"``).
     """
@@ -215,208 +228,256 @@ async def _execute_pack_loop(
         tracer = _NOOP_TRACER
 
     payload: Dict[str, Any] = {}
+    # Tracks whether any non-finish tool has been attempted in this pack loop.
+    # finish_task is rejected until this is True so the LLM cannot claim
+    # completion without having done any actual work.
+    any_non_finish_tool_called = False
 
-    for step in range(max_steps):
-        step_key = f"{step_prefix}step_{step}"
-        logger.debug("Step %s: %d messages in context", step_key, len(messages))
-        run_repository.append_event(
-            run_id,
-            "llm_request",
-            {"step": step, "message_count": len(messages)},
-            step=step_key,
-        )
-
-        with tracer.start_as_current_span("fabric.llm_call") as llm_span:
-            llm_span.set_attribute("step", step)
-            llm_span.set_attribute("specialist_id", specialist_id)
-            llm_span.set_attribute("model", model_cfg.model)
-            llm_span.set_attribute("message_count", len(messages))
-            response = await chat_client.chat(
-                messages=messages,
-                model=model_cfg.model,
-                tools=pack.tool_definitions,
-                temperature=model_cfg.temperature,
-                top_p=model_cfg.top_p,
-                max_tokens=model_cfg.max_tokens,
-            )
-            llm_span.set_attribute("tool_calls_returned", len(response.tool_calls))
-
-        run_repository.append_event(
-            run_id,
-            "llm_response",
-            {
-                "content": (response.content or "")[:MAX_LLM_CONTENT_IN_RUNLOG_CHARS],
-                "tool_calls": [
-                    {"name": tc.tool_name, "call_id": tc.call_id}
-                    for tc in response.tool_calls
-                ],
-            },
-            step=step_key,
-        )
-
-        if not response.has_tool_calls:
-            # LLM responded with plain text (no tool calls) — treat as final.
-            # This handles models that don't support function calling and simply
-            # respond in prose.
-            logger.warning(
-                "Step %s: LLM returned plain text with no tool calls; using as final payload",
-                step_key,
-            )
-            payload = {
-                "action": "final",
-                "summary": response.content or "",
-                "artifacts": [],
-                "next_steps": [],
-                "notes": "Model did not call finish_task; using text response as summary.",
-            }
-            break
-
-        # Build the assistant turn with tool_calls for the conversation history.
-        messages.append(
-            _make_assistant_tool_turn(response.content, response.tool_calls)
-        )
-
-        finish_payload: Optional[Dict[str, Any]] = None
-
-        for tc in response.tool_calls:
+    # aopen() is INSIDE the try block so that aclose() runs even if aopen()
+    # fails partway (e.g. MCPAugmentedPack partially connects before one
+    # session raises — the finally block safely no-ops already-closed sessions).
+    try:
+        await pack.aopen()
+        for step in range(max_steps):
+            step_key = f"{step_prefix}step_{step}"
+            logger.debug("Step %s: %d messages in context", step_key, len(messages))
             run_repository.append_event(
                 run_id,
-                "tool_call",
-                {"tool": tc.tool_name, "args": tc.arguments},
+                "llm_request",
+                {"step": step, "message_count": len(messages)},
                 step=step_key,
             )
 
-            if tc.tool_name == pack.finish_tool_name:
-                # Validate required fields before accepting as the final payload.
-                # If any are missing, send the error back to the LLM as a tool
-                # result so it can retry with complete arguments.
-                missing = [
-                    f for f in pack.finish_required_fields if f not in tc.arguments
-                ]
-                if missing:
-                    logger.warning(
-                        "Step %s: finish_task missing required fields %s; sending error to LLM for retry",
-                        step_key, missing,
-                    )
-                    error_result = {
-                        "error": "finish_task called with missing required fields",
-                        "missing_fields": missing,
-                        "required_fields": pack.finish_required_fields,
-                        "hint": "Call finish_task again with all required fields populated.",
-                    }
-                    messages.append(
-                        _make_tool_result(tc.call_id, json.dumps(error_result))
-                    )
+            with tracer.start_as_current_span("fabric.llm_call") as llm_span:
+                llm_span.set_attribute("step", step)
+                llm_span.set_attribute("specialist_id", specialist_id)
+                llm_span.set_attribute("model", model_cfg.model)
+                llm_span.set_attribute("message_count", len(messages))
+                response = await chat_client.chat(
+                    messages=messages,
+                    model=model_cfg.model,
+                    tools=pack.tool_definitions,
+                    temperature=model_cfg.temperature,
+                    top_p=model_cfg.top_p,
+                    max_tokens=model_cfg.max_tokens,
+                )
+                llm_span.set_attribute("tool_calls_returned", len(response.tool_calls))
+
+            run_repository.append_event(
+                run_id,
+                "llm_response",
+                {
+                    "content": (response.content or "")[:MAX_LLM_CONTENT_IN_RUNLOG_CHARS],
+                    "tool_calls": [
+                        {"name": tc.tool_name, "call_id": tc.call_id}
+                        for tc in response.tool_calls
+                    ],
+                },
+                step=step_key,
+            )
+
+            if not response.has_tool_calls:
+                # LLM responded with plain text (no tool calls) — treat as final.
+                # This handles models that don't support function calling and simply
+                # respond in prose.
+                logger.warning(
+                    "Step %s: LLM returned plain text with no tool calls; using as final payload",
+                    step_key,
+                )
+                payload = {
+                    "action": "final",
+                    "summary": response.content or "",
+                    "artifacts": [],
+                    "next_steps": [],
+                    "notes": "Model did not call finish_task; using text response as summary.",
+                }
+                break
+
+            # Build the assistant turn with tool_calls for the conversation history.
+            messages.append(
+                _make_assistant_tool_turn(response.content, response.tool_calls)
+            )
+
+            finish_payload: Optional[Dict[str, Any]] = None
+
+            for tc in response.tool_calls:
+                run_repository.append_event(
+                    run_id,
+                    "tool_call",
+                    {"tool": tc.tool_name, "args": tc.arguments},
+                    step=step_key,
+                )
+
+                if tc.tool_name == pack.finish_tool_name:
+                    # Structural quality gate: the LLM must attempt at least one
+                    # non-finish tool before finish_task is accepted.  This prevents
+                    # lazy completions where the model claims success without doing
+                    # any work.  Tool failures count — if all tools fail the LLM can
+                    # still call finish_task to report it, as long as it tried.
+                    if not any_non_finish_tool_called:
+                        logger.warning(
+                            "Step %s: finish_task called before any tool was used; "
+                            "sending error to LLM for retry",
+                            step_key,
+                        )
+                        error_result = {
+                            "error": "finish_task_called_without_doing_work",
+                            "message": (
+                                "You must use at least one tool to actually complete "
+                                "the task before calling finish_task. Call finish_task "
+                                "only after you have done the work and verified it."
+                            ),
+                            "hint": (
+                                "Use your available tools first (e.g. shell, write_file, "
+                                "web_search), then call finish_task."
+                            ),
+                        }
+                        messages.append(
+                            _make_tool_result(tc.call_id, json.dumps(error_result))
+                        )
+                        run_repository.append_event(
+                            run_id,
+                            "tool_result",
+                            {"tool": tc.tool_name, "result": error_result},
+                            step=step_key,
+                        )
+                        continue  # Do NOT set finish_payload; LLM must do work first.
+
+                    # Validate required fields before accepting as the final payload.
+                    # If any are missing, send the error back to the LLM as a tool
+                    # result so it can retry with complete arguments.
+                    missing = [
+                        f for f in pack.finish_required_fields if f not in tc.arguments
+                    ]
+                    if missing:
+                        logger.warning(
+                            "Step %s: finish_task missing required fields %s; sending error to LLM for retry",
+                            step_key, missing,
+                        )
+                        error_result = {
+                            "error": "finish_task called with missing required fields",
+                            "missing_fields": missing,
+                            "required_fields": pack.finish_required_fields,
+                            "hint": "Call finish_task again with all required fields populated.",
+                        }
+                        messages.append(
+                            _make_tool_result(tc.call_id, json.dumps(error_result))
+                        )
+                        run_repository.append_event(
+                            run_id,
+                            "tool_result",
+                            {"tool": tc.tool_name, "result": error_result},
+                            step=step_key,
+                        )
+                        continue  # Do NOT set finish_payload; LLM must retry.
+
+                    finish_payload = {"action": "final", **tc.arguments}
+                    messages.append(_make_tool_result(tc.call_id, _FINISH_TOOL_RESULT_CONTENT))
                     run_repository.append_event(
                         run_id,
                         "tool_result",
-                        {"tool": tc.tool_name, "result": error_result},
+                        {"tool": tc.tool_name, "result": {"status": "task_completed"}},
                         step=step_key,
                     )
-                    continue  # Do NOT set finish_payload; LLM must retry.
+                    continue
 
-                finish_payload = {"action": "final", **tc.arguments}
-                messages.append(_make_tool_result(tc.call_id, _FINISH_TOOL_RESULT_CONTENT))
-                run_repository.append_event(
-                    run_id,
-                    "tool_result",
-                    {"tool": tc.tool_name, "result": {"status": "task_completed"}},
-                    step=step_key,
-                )
-                continue
+                # Mark that the LLM has attempted at least one non-finish tool.
+                # Set before execution so that tool failures still count.
+                any_non_finish_tool_called = True
+                error_type: Optional[str] = None
+                error_message: str = ""
+                with tracer.start_as_current_span("fabric.tool_call") as tool_span:
+                    tool_span.set_attribute("tool_name", tc.tool_name)
+                    tool_span.set_attribute("specialist_id", specialist_id)
+                    try:
+                        result = await pack.execute_tool(tc.tool_name, tc.arguments)
+                    except PermissionError as exc:
+                        # Sandbox violation: path escape or disallowed command.
+                        result = {"error": "permission_denied", "message": str(exc)}
+                        error_type, error_message = "permission", str(exc)
+                    except (ValueError, TypeError) as exc:
+                        # Bad arguments supplied by the LLM to the tool.
+                        result = {"error": "invalid_arguments", "message": str(exc)}
+                        error_type, error_message = "invalid_args", str(exc)
+                    except OSError as exc:
+                        # Filesystem or subprocess I/O error.
+                        result = {"error": "io_error", "message": str(exc)}
+                        error_type, error_message = "io_error", str(exc)
+                    except Exception as exc:  # noqa: BLE001
+                        # Unexpected error — catch-all so one bad tool never kills the run.
+                        # KeyboardInterrupt / SystemExit are BaseException, not Exception,
+                        # so they propagate normally.
+                        result = {
+                            "error": "unexpected_error",
+                            "message": str(exc),
+                            "error_type": type(exc).__name__,
+                        }
+                        error_type, error_message = "unexpected", str(exc)
 
-            error_type: Optional[str] = None
-            error_message: str = ""
-            with tracer.start_as_current_span("fabric.tool_call") as tool_span:
-                tool_span.set_attribute("tool_name", tc.tool_name)
-                tool_span.set_attribute("specialist_id", specialist_id)
-                try:
-                    result = pack.execute_tool(tc.tool_name, tc.arguments)
-                except PermissionError as exc:
-                    # Sandbox violation: path escape or disallowed command.
-                    result = {"error": "permission_denied", "message": str(exc)}
-                    error_type, error_message = "permission", str(exc)
-                except (ValueError, TypeError) as exc:
-                    # Bad arguments supplied by the LLM to the tool.
-                    result = {"error": "invalid_arguments", "message": str(exc)}
-                    error_type, error_message = "invalid_args", str(exc)
-                except OSError as exc:
-                    # Filesystem or subprocess I/O error.
-                    result = {"error": "io_error", "message": str(exc)}
-                    error_type, error_message = "io_error", str(exc)
-                except Exception as exc:  # noqa: BLE001
-                    # Unexpected error — catch-all so one bad tool never kills the run.
-                    # KeyboardInterrupt / SystemExit are BaseException, not Exception,
-                    # so they propagate normally.
-                    result = {
-                        "error": "unexpected_error",
-                        "message": str(exc),
-                        "error_type": type(exc).__name__,
-                    }
-                    error_type, error_message = "unexpected", str(exc)
-
-            if error_type is not None:
-                logger.warning(
-                    "Step %s: tool %r error (%s): %s",
-                    step_key, tc.tool_name, error_type, error_message,
-                )
-                run_repository.append_event(
-                    run_id,
-                    "tool_error",
-                    {
-                        "tool": tc.tool_name,
-                        "error_type": error_type,
-                        "error_message": error_message,
-                    },
-                    step=step_key,
-                )
-                if error_type == "permission":
-                    # Sandbox violation — write a dedicated security_event so the
-                    # audit trail is distinct from ordinary tool errors.
+                if error_type is not None:
                     logger.warning(
-                        "Security event: sandbox violation by tool %r: %s",
-                        tc.tool_name, error_message,
+                        "Step %s: tool %r error (%s): %s",
+                        step_key, tc.tool_name, error_type, error_message,
                     )
                     run_repository.append_event(
                         run_id,
-                        "security_event",
+                        "tool_error",
                         {
-                            "event_type": "sandbox_violation",
                             "tool": tc.tool_name,
+                            "error_type": error_type,
                             "error_message": error_message,
                         },
                         step=step_key,
                     )
-            else:
-                run_repository.append_event(
-                    run_id,
-                    "tool_result",
-                    {"tool": tc.tool_name, "result": result},
-                    step=step_key,
+                    if error_type == "permission":
+                        # Sandbox violation — write a dedicated security_event so the
+                        # audit trail is distinct from ordinary tool errors.
+                        logger.warning(
+                            "Security event: sandbox violation by tool %r: %s",
+                            tc.tool_name, error_message,
+                        )
+                        run_repository.append_event(
+                            run_id,
+                            "security_event",
+                            {
+                                "event_type": "sandbox_violation",
+                                "tool": tc.tool_name,
+                                "error_message": error_message,
+                            },
+                            step=step_key,
+                        )
+                else:
+                    run_repository.append_event(
+                        run_id,
+                        "tool_result",
+                        {"tool": tc.tool_name, "result": result},
+                        step=step_key,
+                    )
+                messages.append(_make_tool_result(tc.call_id, json.dumps(result, ensure_ascii=False)))
+
+            if finish_payload is not None:
+                payload = finish_payload
+                logger.info(
+                    "Pack loop completed: step=%s pack=%s",
+                    step_key, step_prefix.rstrip("_") or "single",
                 )
-            messages.append(_make_tool_result(tc.call_id, json.dumps(result, ensure_ascii=False)))
+                break
 
-        if finish_payload is not None:
-            payload = finish_payload
-            logger.info(
-                "Pack loop completed: step=%s pack=%s",
-                step_key, step_prefix.rstrip("_") or "single",
+        else:
+            # for-else: loop completed without breaking → max_steps reached.
+            logger.warning(
+                "max_steps (%d) reached without finish_task: run_id=%s step_prefix=%r",
+                max_steps, run_id.value, step_prefix,
             )
-            break
-
-    else:
-        # for-else: loop completed without breaking → max_steps reached.
-        logger.warning(
-            "max_steps (%d) reached without finish_task: run_id=%s step_prefix=%r",
-            max_steps, run_id.value, step_prefix,
-        )
-        payload = {
-            "action": "final",
-            "summary": f"Reached max_steps ({max_steps}) without completion.",
-            "artifacts": [],
-            "next_steps": ["Increase max_steps or refine task."],
-            "notes": "See runlog for details.",
-        }
+            payload = {
+                "action": "final",
+                "summary": f"Reached max_steps ({max_steps}) without completion.",
+                "artifacts": [],
+                "next_steps": ["Increase max_steps or refine task."],
+                "notes": "See runlog for details.",
+            }
+    finally:
+        await pack.aclose()
 
     return payload
 

@@ -2,13 +2,17 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-24. Fast CI: **194 pass** (T1 + T2 + T3 tiers complete; Phases 2, 3, 4 complete).
+**Last updated:** 2026-02-24. Fast CI: **243 pass** (T1 + T2 + T3 tiers complete; Phases 2, 3, 4, 5 complete).
 
 ---
 
-## Current phase: **Phase 4 complete → Next: Phase 5**
+## Current phase: **Phase 5 complete → Phase 6 in progress**
 
-Phase 4 is **complete**. All four deliverables (P4-1 through P4-4) are done. Next: Phase 5 (containerised workers, MCP tool servers, persistent vector store) per BACKLOG.md.
+Phase 5 (MCP tool server support) is **complete**. All six deliverables (P5-1 through P5-6) are done. The `mcp` optional dep group is wired; `MCPAugmentedPack` wraps any specialist pack transparently when `mcp_servers` is configured.
+
+**Post-Phase-5 correctness fix (committed with Phase 6 doc work):** `await pack.aopen()` was placed outside the `try/finally` block in `_execute_pack_loop`. If `aopen()` raised (e.g. MCP server fails to start), `aclose()` would never run, leaking partially-connected sessions. Fixed by moving `aopen()` inside the `try` block.
+
+Phase 6 has been planned (P6-1 through P6-4) in BACKLOG.md. Start with P6-1 (persistent cross-run memory / run index).
 
 ---
 
@@ -116,13 +120,26 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 
 ---
 
+## Phase 5 checklist (from [PLAN.md](PLAN.md)) — **complete**
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 5.1 | Config schema: MCPServerConfig + mcp_servers | Done | `config/schema.py`; validators for stdio/sse; duplicate-name check |
+| 5.2 | Async execute_tool + pack lifecycle (aopen/aclose) | Done | `base.py`, `ports.py`, `execute_task.py`; try/finally in _execute_pack_loop |
+| 5.3 | MCPSessionManager + converter | Done | `infrastructure/mcp/session.py`, `converter.py`; top-level mcp import guarded |
+| 5.4 | MCPAugmentedPack | Done | `infrastructure/mcp/augmented_pack.py`; asyncio.gather connect/disconnect |
+| 5.5 | Registry integration | Done | `registry.py` wraps pack when mcp_servers non-empty; RuntimeError if mcp not installed |
+| 5.6 | pyproject.toml + docs | Done | `mcp = [“mcp>=1.0”]` optional dep; dev dep updated; all docs updated |
+
+---
+
 ## Next steps (what to do when resuming)
 
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 194 pass before touching code.
-3. Start the first non-done item (Phase 4 complete → next: **Phase 5** per BACKLOG.md).
+2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 243 pass before touching code.
+3. Start the first non-done item (Phase 5 complete → **Phase 6 starts with P6-1** per BACKLOG.md).
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---

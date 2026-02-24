@@ -17,6 +17,17 @@ def test_engineering_pack_has_tools():
         assert "list_files" in pack.tool_names
 
 
+@pytest.mark.parametrize("network_allowed", [False, True])
+def test_engineering_pack_tools_unchanged_by_network_flag(network_allowed):
+    """Engineering has no conditional network tools; tool set must be identical
+    regardless of network_allowed (unlike the research pack which omits web tools
+    when network_allowed=False)."""
+    with tempfile.TemporaryDirectory() as d:
+        pack = build_engineering_pack(d, network_allowed=network_allowed)
+        # All four tools plus finish_task must always be present.
+        assert set(pack.tool_names) == {"shell", "read_file", "write_file", "list_files"}
+
+
 def test_research_pack_network_allowed_has_web_tools():
     with tempfile.TemporaryDirectory() as d:
         pack = build_research_pack(d, network_allowed=True)

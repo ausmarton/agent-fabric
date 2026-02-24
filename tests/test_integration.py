@@ -51,6 +51,13 @@ MOCK_RESEARCH_RESPONSE = _finish_task_response(
     gaps_and_future_work=[],
 )
 
+# A simple list_files call to satisfy the "prior tool call" structural requirement
+# before finish_task is accepted.
+_MOCK_TOOL_CALL = LLMResponse(
+    content=None,
+    tool_calls=[ToolCallRequest(call_id="t0", tool_name="list_files", arguments={})],
+)
+
 
 @pytest.fixture
 def temp_workspace_root(tmp_path):
@@ -64,7 +71,8 @@ async def test_execute_task_creates_run_dir_runlog_workspace(temp_workspace_root
     run_repository = FileSystemRunRepository(workspace_root=temp_workspace_root)
     specialist_registry = ConfigSpecialistRegistry(config)
 
-    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock, return_value=MOCK_ENG_RESPONSE):
+    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock,
+                      side_effect=[_MOCK_TOOL_CALL, MOCK_ENG_RESPONSE]):
         chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
         task = Task(prompt="list files", specialist_id="engineering", network_allowed=False)
         result = await execute_task(
@@ -104,7 +112,8 @@ async def test_execute_task_research_pack(temp_workspace_root):
     run_repository = FileSystemRunRepository(workspace_root=temp_workspace_root)
     specialist_registry = ConfigSpecialistRegistry(config)
 
-    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock, return_value=MOCK_RESEARCH_RESPONSE):
+    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock,
+                      side_effect=[_MOCK_TOOL_CALL, MOCK_RESEARCH_RESPONSE]):
         chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
         task = Task(prompt="mini review", specialist_id="research", network_allowed=False)
         result = await execute_task(

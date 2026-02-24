@@ -99,20 +99,20 @@ We can start with a small set of very specialised pillars (e.g. engineering + re
 
 ## 7. Phasing and blueprint
 
-- **Phase 1 (current MVP):**  
-  - Engineering pack: plan → implement → test → review → iterate; quality gates (no “it works” without tests/build); deploy/push proposed only.  
-  - Research pack: systematic-review style workflow (scope → search → screen → extract → synthesize); screening log, evidence table, citations; no citation without fetch.  
-  - Router picks pack by prompt (keyword-based or explicit `--pack`).  
-  - Local OpenAI-compatible LLM only; no MCP/enterprise/observability yet.
-- **Later phases (blueprint):**  
-  - Task decomposition and router (e.g. small model + JSON schema) to map a task → required capabilities → which pack(s) to recruit.  
-  - Containerised workers (e.g. Podman) per specialist role, spun up on demand.  
-  - MCP tool servers for Confluence/Jira/GitHub (and similar).  
-  - Persistent vector store for enterprise RAG (metadata, staleness).  
-  - Observability export (e.g. OpenTelemetry).  
-  - Cloud fallback; multi-pack recruitment so a task force (multiple agents/packs) is assembled and started per task as needed.
+- **Phases 1–5 (complete):**
+  - Phase 1: Engineering + research packs, keyword router, CLI, HTTP API, local Ollama, sandbox, runlog.
+  - Phase 2: Capability model; two-stage routing (prompt → required capabilities → pack by coverage); capability logged in runlog and HTTP `_meta`.
+  - Phase 3: Multi-pack task forces; sequential execution with context handoff; shared workspace + runlog; `pack_start` events.
+  - Phase 4: Generic/cloud LLM client (`ModelConfig.backend`); `fabric logs` CLI subcommand; OpenTelemetry tracing (optional dep; no-op shim when absent); LLM-driven orchestrator routing with `routing_model_key`.
+  - Phase 5: MCP tool server support — `MCPServerConfig` in config; `MCPAugmentedPack` wraps any specialist pack transparently; `aopen`/`aclose` lifecycle; tool names prefixed `mcp__<server>__<tool>`; optional `mcp` dep group.
 
-The full blueprint is reflected in README “Next upgrades”, REQUIREMENTS.md “Out of scope”, and this document.
+- **Phase 6+ (next):**
+  - Containerised workers (e.g. Podman) per specialist role, spun up on demand.
+  - Persistent vector store for enterprise RAG (metadata, staleness, cross-run memory).
+  - Cloud fallback when local model cannot meet the quality or capability bar.
+  - Real MCP server integrations (Confluence, Jira, GitHub) using Phase 5 infrastructure.
+
+The full blueprint is reflected in PLAN.md, BACKLOG.md, REQUIREMENTS.md, and this document.
 
 ---
 
@@ -125,13 +125,13 @@ Use this checklist to keep the repo aligned with the vision.
 | Quality over speed | README, REQUIREMENTS (quality gates), workflow system prompts | Enforced in engineering/research rules and FR5. |
 | Local-first | Config `base_url`, `local_llm_ensure_available` (default True), README quickstart | Local LLM is default and primary; fabric ensures available (start if needed) by default. Cloud when local capability/quality insufficient (future). |
 | Cloud fallback | Not implemented | When local **model** cannot meet quality or capability (e.g. task needs larger model), not when connection fails. Future. |
-| Engineering pack: plan→implement→test→review | `workflows/engineering_v1.py`, `packs/engineering.py` | Implemented; deploy/push proposed only (FR5.1). |
-| Research pack: systematic review, citations, screening | `workflows/research_v1.py`, `packs/research.py` | Implemented; citations only from fetch_url (FR5.2). |
+| Engineering pack: plan→implement→test→review | `infrastructure/specialists/engineering.py` | Implemented; deploy/push proposed only (FR5.1). |
+| Research pack: systematic review, citations, screening | `infrastructure/specialists/research.py` | Implemented; citations only from fetch_url (FR5.2). |
 | Deploy/push require human approval | Engineering system rules, FR5.1, `require_human_approval_for` in config | In rules and config; not auto-executed. |
 | Task-based recruitment (one pack per run) | `application/recruit.py`, `config/capabilities.py`, `config/schema.py` | **Phase 2 complete:** two-stage capability routing (prompt → required capabilities → pack by coverage); `required_capabilities` logged in runlog and HTTP `_meta`; one pack per run; multi-pack task force is Phase 3. |
 | Orchestrator decides what to spin up | Router today; no task decomposition yet | Vision: orchestrator always available; agents spun up on demand. No “toggle teams”. |
-| Enterprise (Confluence/Jira/GitHub/Rally) | README “later”, REQUIREMENTS “out of scope” | Planned; MCP/custom tools in “Next upgrades”. |
-| Observability | README “Next upgrades”, REQUIREMENTS “out of scope” | Runlog exists; OpenTelemetry export is future. |
+| Enterprise (Confluence/Jira/GitHub/Rally) | MCP infrastructure now in place (Phase 5) | `MCPServerConfig` + `MCPAugmentedPack` wired; real connector servers (e.g. `@modelcontextprotocol/server-github`) are Phase 6 config entries. |
+| Observability | `infrastructure/telemetry.py`; `TelemetryConfig` in schema | **Done (Phase 4):** OpenTelemetry no-op shim + optional real OTEL (console/otlp); `fabric.execute_task` / `fabric.llm_call` / `fabric.tool_call` spans; `[otel]` optional dep. |
 | AMD / Fedora / Vulkan-friendly | README Quickstart (Fedora, Option A llama.cpp) | Documented; no NVIDIA assumption. |
 | Portable, clean, extensible | Structure: packs, workflows, tools, config | Packs and workflows are pluggable; config-driven. |
 | Phased build, blueprint upfront | README “Next upgrades”, REQUIREMENTS, this doc | Blueprint in docs; implementation follows phases. |

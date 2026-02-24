@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from agent_fabric.config import DEFAULT_CONFIG, FabricConfig, get_config, load_config
 from agent_fabric.config import loader as config_loader
-from agent_fabric.config.schema import ModelConfig, SpecialistConfig
+from agent_fabric.config.schema import MCPServerConfig, ModelConfig, SpecialistConfig
 
 
 def test_get_config_default(monkeypatch):
@@ -166,3 +166,56 @@ def test_config_legacy_auto_start_llm_keys(monkeypatch):
         assert cfg.local_llm_start_timeout_s == 120
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# MCP config tests (P5-1)
+# ---------------------------------------------------------------------------
+
+def test_mcp_server_config_valid_stdio():
+    """MCPServerConfig with transport='stdio' is valid when command is set."""
+    cfg = MCPServerConfig(name="github", transport="stdio", command="npx", args=["-y", "@modelcontextprotocol/server-github"])
+    assert cfg.name == "github"
+    assert cfg.transport == "stdio"
+    assert cfg.command == "npx"
+    assert cfg.args == ["-y", "@modelcontextprotocol/server-github"]
+
+
+def test_mcp_server_config_valid_sse():
+    """MCPServerConfig with transport='sse' is valid when url is set."""
+    cfg = MCPServerConfig(name="jira", transport="sse", url="http://localhost:3000/sse")
+    assert cfg.name == "jira"
+    assert cfg.transport == "sse"
+    assert cfg.url == "http://localhost:3000/sse"
+
+
+def test_mcp_server_config_stdio_missing_command_raises():
+    """MCPServerConfig with transport='stdio' and no command raises ValidationError."""
+    with pytest.raises(ValidationError, match="requires 'command'"):
+        MCPServerConfig(name="bad", transport="stdio")
+
+
+def test_mcp_server_config_sse_missing_url_raises():
+    """MCPServerConfig with transport='sse' and no url raises ValidationError."""
+    with pytest.raises(ValidationError, match="requires 'url'"):
+        MCPServerConfig(name="bad", transport="sse")
+
+
+def test_specialist_config_mcp_servers_default_empty():
+    """SpecialistConfig.mcp_servers defaults to an empty list."""
+    spec = SpecialistConfig(description="test", keywords=[], workflow="test")
+    assert spec.mcp_servers == []
+
+
+def test_specialist_config_duplicate_mcp_server_names_raises():
+    """SpecialistConfig rejects duplicate MCP server names."""
+    with pytest.raises(ValidationError, match="Duplicate MCP server names"):
+        SpecialistConfig(
+            description="test",
+            keywords=[],
+            workflow="test",
+            mcp_servers=[
+                MCPServerConfig(name="dup", transport="stdio", command="npx"),
+                MCPServerConfig(name="dup", transport="stdio", command="npx"),
+            ],
+        )

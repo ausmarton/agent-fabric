@@ -70,11 +70,16 @@ class BaseSpecialistPack:
             .get("required", [])
         )
 
-    def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def aopen(self) -> None:
+        """Lifecycle hook: called before the tool loop starts. No-op in base class."""
+
+    async def aclose(self) -> None:
+        """Lifecycle hook: called after the tool loop ends. No-op in base class."""
+
+    async def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a regular (non-finish) tool by name.
 
-        Raises:
-            KeyError: When ``tool_name`` is not a known regular tool.
+        Sync tool functions are called directly (no executor needed).
         """
         if tool_name not in self._tools:
             return {"error": f"Unknown tool: {tool_name!r}. Available: {list(self._tools)}"}

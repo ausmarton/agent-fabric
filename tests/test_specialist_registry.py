@@ -31,7 +31,7 @@ class _StubPack:
     finish_tool_name: str = "finish_task"
     finish_required_fields: List[str] = []
 
-    def execute_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         return {"stub": True}
 
     @property

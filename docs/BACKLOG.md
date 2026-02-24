@@ -14,7 +14,7 @@ referenced source files, and [DECISIONS.md](DECISIONS.md).
 **How to resume after an interruption**
 1. Read [STATE.md](STATE.md) — confirms current phase and last verified state.
 2. Read this file — find the first non-done item; that is what to work on.
-3. Run `pytest tests/ -k "not real_llm and not verify"` — confirm 45 pass before touching code.
+3. Run `pytest tests/ -k "not real_llm and not verify"` — confirm 243 pass before touching code.
 4. Start the item; mark it IN PROGRESS here and in STATE.md.
 
 ---
@@ -463,10 +463,154 @@ PLAN.md Phase 3 deliverables ticked off.
 
 ---
 
+## Phase 5 items (MCP tool server support) — **complete**
+
+---
+
+### ~~P5-1: Config schema — MCPServerConfig + mcp_servers~~ **DONE 2026-02-24**
+
+**What:** Added `MCPServerConfig(BaseModel)` to `config/schema.py` (`name`, `transport`, `command`/`args`/`env` for stdio, `url`/`headers` for SSE, `timeout_s`; validators require `command` for stdio and `url` for SSE). Added `mcp_servers: List[MCPServerConfig]` to `SpecialistConfig` with a validator that rejects duplicate server names. +6 tests in `tests/test_config.py`.
+
+**Files:** `src/agent_fabric/config/schema.py`, `tests/test_config.py`
+
+---
+
+### ~~P5-2: Async execute_tool + pack lifecycle~~ **DONE 2026-02-24**
+
+**What:** Made `BaseSpecialistPack.execute_tool()` async (calls sync tool functions directly — no executor needed). Added no-op `aopen()`/`aclose()` to `BaseSpecialistPack`. Updated `SpecialistPack` Protocol (`execute_tool` async, `aopen`/`aclose` added). Updated `_execute_pack_loop` to `await pack.execute_tool(...)` and wrap the step loop in `try/finally: await pack.aopen() / await pack.aclose()`. Updated `_StubPack.execute_tool` in `tests/test_specialist_registry.py`.
+
+**Files:** `src/agent_fabric/infrastructure/specialists/base.py`, `src/agent_fabric/application/ports.py`, `src/agent_fabric/application/execute_task.py`, `tests/test_specialist_registry.py`
+
+---
+
+### ~~P5-3: MCPSessionManager + converter~~ **DONE 2026-02-24**
+
+**What:** Created `infrastructure/mcp/` package. `converter.py`: `mcp_tool_to_openai_def(prefixed_name, tool)` — substitutes empty schema when `inputSchema` is None. `session.py`: `MCPSessionManager` with `connect()`/`disconnect()` via `AsyncExitStack`, `list_tools()` returning prefixed OpenAI defs, `call_tool()` (strips prefix, returns `{"result": text}` or `{"error": text}`), `owns_tool()`. Top-level `mcp` imports guarded with try/except for graceful no-op when package absent. +12 tests in `tests/test_mcp_session.py` (all mocked).
+
+**Files:** `src/agent_fabric/infrastructure/mcp/__init__.py`, `session.py`, `converter.py`; `tests/test_mcp_session.py` (new)
+
+---
+
+### ~~P5-4: MCPAugmentedPack~~ **DONE 2026-02-24**
+
+**What:** Created `infrastructure/mcp/augmented_pack.py` with `MCPAugmentedPack(inner, sessions)`: `aopen()` — `asyncio.gather()` connects + populates `_mcp_tool_defs`; `aclose()` — `asyncio.gather(..., return_exceptions=True)` ignores individual failures; `tool_definitions` — inner + MCP tools; `execute_tool()` — dispatches to owning session or inner pack; forwards `specialist_id`, `system_prompt`, `finish_tool_name`, `finish_required_fields`. +10 tests in `tests/test_mcp_augmented_pack.py`.
+
+**Files:** `src/agent_fabric/infrastructure/mcp/augmented_pack.py` (new); `tests/test_mcp_augmented_pack.py` (new)
+
+---
+
+### ~~P5-5: Registry integration~~ **DONE 2026-02-24**
+
+**What:** Updated `ConfigSpecialistRegistry.get_pack()` to wrap the built pack with `MCPAugmentedPack` when `spec_cfg.mcp_servers` is non-empty. Import is guarded: raises `RuntimeError("mcp package not installed")` if `agent_fabric.infrastructure.mcp` cannot be imported. +6 tests in `tests/test_mcp_registry.py`.
+
+**Files:** `src/agent_fabric/infrastructure/specialists/registry.py`, `tests/test_mcp_registry.py` (new)
+
+---
+
+### ~~P5-6: pyproject.toml + docs~~ **DONE 2026-02-24**
+
+**What:** Added `mcp = ["mcp>=1.0"]` to `[project.optional-dependencies]`; also added `mcp>=1.0` to `dev` so CI tests can mock it. Updated BACKLOG.md (this section), STATE.md (phase → Phase 5 complete, CI count → ~242), PLAN.md (Phase 5 concrete deliverables).
+
+**Files:** `pyproject.toml`, `docs/BACKLOG.md`, `docs/STATE.md`, `docs/PLAN.md`
+
+---
+
+## Phase 6 items (next)
+
+Phase 6 starts now. These are the first non-done items. Work on P6-1 first.
+
+---
+
+### P6-1: Persistent cross-run memory (run index + summary store)
+
+**Why:** Every run is currently a black box — the fabric cannot build on previous work, refer to past findings, or avoid repeating itself across conversations or tasks. The vision describes an enterprise assistant that accumulates context. Without memory, each task starts cold.
+
+**What to build:**
+- A `RunIndex` infrastructure component that maintains a lightweight JSONL index of all past runs: `run_id`, `specialist_ids`, `prompt_prefix` (first 200 chars), `finish_summary` (from `payload["summary"]`), `timestamp`, `workspace_path`.
+- Index is written atomically after each successful run (append to `.fabric/run_index.jsonl`).
+- A `search_runs(query: str) -> list[RunSummary]` function (keyword / substring, no vector store yet) that lets a future pack or the orchestrator retrieve relevant prior results.
+- Expose via `fabric logs search <query>` CLI subcommand.
+- Phase 6.2 will add vector search; Phase 6.1 uses substring matching — simple, no new deps.
+
+**Acceptance criteria:**
+- [ ] Every `execute_task` run appends to the run index on success.
+- [ ] `fabric logs search "kubernetes"` returns all prior runs whose prompt or summary contains that string.
+- [ ] The index file is append-only JSONL; survives partial writes (write + atomic rename).
+- [ ] Tests: `tests/test_run_index.py` — 8–10 tests; fast CI stays green.
+
+**Files:** `infrastructure/workspace/run_index.py` (new), `interfaces/cli.py`, `application/execute_task.py`
+
+---
+
+### P6-2: Real MCP server smoke test (filesystem server)
+
+**Why:** Phase 5 built all the MCP wiring but every test mocks the transport layer. We have never run a real MCP server end-to-end through the fabric. The `mcp` package is installed in dev but its integration with a real subprocess has never been verified.
+
+**What to build:**
+- A `tests/test_mcp_real_server.py` marked `@pytest.mark.real_mcp` (like `real_llm`) — deselected from fast CI but runnable with `-k real_mcp`.
+- Uses the official `@modelcontextprotocol/server-filesystem` npm package (must be installed: `npm install -g @modelcontextprotocol/server-filesystem`) with a tmp directory as root.
+- Test: connect `MCPSessionManager`, call `list_tools()`, call `read_file` (or equivalent), assert result dict contains `"result"`.
+- A fixture `skip_if_npx_unavailable` that skips gracefully if `npx` is not in PATH.
+
+**Acceptance criteria:**
+- [ ] `pytest tests/test_mcp_real_server.py -k real_mcp -v` passes when `npx` + the filesystem server are available.
+- [ ] Test is deselected by default (`-k "not real_mcp"`).
+- [ ] Fast CI (243 pass) unaffected.
+
+**Files:** `tests/test_mcp_real_server.py` (new), `pyproject.toml` (add `real_mcp` marker)
+
+---
+
+### P6-3: Containerised workspace isolation (Podman)
+
+**Why:** The engineering pack runs shell commands in a shared workspace directory. There is no OS-level isolation — a rogue LLM call can reach the host filesystem beyond the workspace. The vision explicitly calls for Podman-based containment for specialist workers.
+
+**What to build:**
+- A `ContainerisedSpecialistPack` wrapper (similar to `MCPAugmentedPack`) that:
+  - On `aopen()`: starts a Podman container from a base image (configurable), mounts the workspace as `/workspace`.
+  - Overrides the `shell` tool to forward commands into `podman exec` rather than `subprocess.run` locally.
+  - On `aclose()`: stops and removes the container.
+- `SpecialistConfig.container_image: Optional[str]` — when set, the registry wraps with `ContainerisedSpecialistPack`.
+- Default: no container (existing behaviour unchanged).
+
+**Acceptance criteria:**
+- [ ] `SpecialistConfig(container_image="python:3.12-slim")` causes the engineering pack's shell tool to execute inside the container.
+- [ ] Workspace is mounted; files written in the container are visible on the host at `workspace_path`.
+- [ ] Tests: `tests/test_containerised_pack.py` — integration tests marked `@pytest.mark.podman` (skip if Podman unavailable); unit tests mock `subprocess.run`/Podman API.
+- [ ] Fast CI unaffected.
+
+**Files:** `infrastructure/specialists/containerised.py` (new), `config/schema.py`, `infrastructure/specialists/registry.py`
+
+---
+
+### P6-4: Cloud LLM fallback (quality/capability gate)
+
+**Why:** ADR-008 defines the policy: cloud only when the local model cannot meet the quality or capability bar, not on connection failure. Phase 4 added `ModelConfig.backend = "generic"` and `GenericChatClient`. The fallback logic itself — detecting "local cannot meet bar" and routing to a cloud model — is missing.
+
+**What to build:**
+- A `FallbackChatClient(local: ChatClient, cloud: ChatClient, policy: FallbackPolicy)` that:
+  - Runs the local model first.
+  - Evaluates a simple `FallbackPolicy` (configurable): e.g. `response_too_short`, `tool_calls_malformed`, `explicit_capability_flag_on_task`.
+  - If policy triggers: re-runs the same call against the cloud model.
+  - Logs a `cloud_fallback` event to the runlog when triggered.
+- `FabricConfig.cloud_fallback: Optional[CloudFallbackConfig]` — off by default.
+- Explicit, not automatic: the policy must be configured; no silent fallback.
+
+**Acceptance criteria:**
+- [ ] `cloud_fallback` is `None` by default; behaviour identical to current when absent.
+- [ ] With a configured policy, a response failing the quality check causes the call to be re-issued to the cloud model.
+- [ ] `cloud_fallback` event appears in runlog with `reason`, `local_model`, `cloud_model`.
+- [ ] Tests: mocked; no real cloud call needed for unit tests. Fast CI green.
+
+**Files:** `infrastructure/chat/fallback.py` (new), `config/schema.py`, `application/execute_task.py`
+
+---
+
 ## Done
 
 | Item | Completed | Summary |
 |------|-----------|---------|
+| P5-1 through P5-6: Phase 5 MCP tool server support | 2026-02-24 | MCPServerConfig + mcp_servers on SpecialistConfig; execute_tool async + aopen/aclose lifecycle; MCPSessionManager + converter; MCPAugmentedPack wrapper; registry transparent wrap; [mcp] optional dep. Fast CI: 243 pass (+34) |
 | P4-1 through P4-4: Phase 4 observability + multi-backend LLM | 2026-02-24 | GenericChatClient + build_chat_client() factory + ModelConfig.backend; fabric logs list/show CLI; OpenTelemetry no-op shim + optional real OTEL (console/otlp); TelemetryConfig schema; execute_task spans (execute_task, llm_call, tool_call); setup_telemetry() wired into CLI + HTTP API lifespan; [otel] pyproject.toml extra. Fast CI: 194 pass (+50) |
 | P3-1 through P3-5: Phase 3 multi-pack task force | 2026-02-24 | RecruitmentResult.specialist_ids (greedy selection); _execute_pack_loop(); sequential multi-pack execution with context handoff; pack_start events + prefixed step names; RunResult.specialist_ids + is_task_force; HTTP _meta updated; 17 new tests in test_task_force.py + 2 in test_capabilities.py. Fast CI: 144 pass (+22) |
 | P2-1 through P2-5: Phase 2 capability routing | 2026-02-24 | CAPABILITY_KEYWORDS + capabilities on SpecialistConfig; infer_capabilities(); RecruitmentResult; two-stage routing (caps → keyword fallback); recruitment runlog event; required_capabilities in RunResult + HTTP _meta; docs/CAPABILITIES.md; REQUIREMENTS FR2 + VISION §8 updated. Fast CI: 122 pass (+17) |

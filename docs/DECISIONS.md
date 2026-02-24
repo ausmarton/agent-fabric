@@ -80,7 +80,8 @@ calls produces a minimal final payload) but is not the expected path.
 - `finish_task` is NOT in `BaseSpecialistPack._tools` (the executor map) — it is handled
   specially in `execute_task.py`. Attempting to call `pack.execute_tool("finish_task", ...)`
   will raise `KeyError`. This is intentional.
-- The payload must be validated before being returned (see BACKLOG T1-1 — currently not done).
+- Required fields are validated before accepting the payload (BACKLOG T1-1 — done 2026-02-24).
+  If any required field is missing, the error is returned to the LLM as a tool result so it can retry.
 
 ---
 
@@ -130,30 +131,35 @@ scoping, the LLM could read or write arbitrary files on the host, or run arbitra
 - Network is not OS-blocked even when `network_allowed=False` — the engineering pack's shell
   can still reach the network. This is intentional (documented) and acceptable for the current
   phase; true network sandboxing would require containers (Phase 4).
-- Sandbox violations currently produce `{"error": "..."}` in the tool result with no audit
-  trail. This is a known gap (see BACKLOG T2-4).
+- Sandbox violations (PermissionError) produce a `tool_error` runlog event *and* a distinct
+  `security_event` entry with `event_type: "sandbox_violation"` (BACKLOG T2-4 — done 2026-02-24).
 
 ---
 
-## ADR-006: Specialist packs as registered builders (current state) → moving to extensible registry (T1-4)
+## ADR-006: Extensible specialist registry (config-driven builders + MCP transparent wrap)
 
-**Status:** Partially accepted — known limitation, planned for improvement
-**Date:** 2026-02-24
+**Status:** Accepted — fully implemented
+**Date:** 2026-02-24 (T1-4 completed); 2026-02-24 (Phase 5 MCP wrap added)
 
 **Context:** Specialist packs need to be discoverable and constructable from a `specialist_id`
-string. The current implementation uses a hardcoded `_BUILDERS` dict in `registry.py`.
+string. The original implementation used a hardcoded `_BUILDERS` dict in `registry.py`.
 
-**Current decision (interim):** Hardcoded dict `{"engineering": build_engineering_pack, "research": build_research_pack}`. Simple and works for Phase 1.
+**Decision (T1-4 — done):** `SpecialistConfig` carries an optional `builder` field (dotted
+import path, e.g. `"mypackage.packs.custom:build_custom_pack"`). `ConfigSpecialistRegistry`
+imports and calls it at `get_pack()` time. A fallback `_DEFAULT_BUILDERS` map covers the
+built-in `engineering` and `research` packs. Adding a new pack requires only a config entry —
+no changes to `registry.py`.
 
-**Planned improvement (BACKLOG T1-4):** Replace with config-driven factory map (Strategy A:
-dotted module path in `SpecialistConfig.builder`) or entry-point discovery (Strategy B).
-Strategy A is preferred because it keeps pack registration in config (where users already
-look) and doesn't require a pip install for built-in packs.
+**Decision (Phase 5 — done):** When `SpecialistConfig.mcp_servers` is non-empty, `get_pack()`
+transparently wraps the returned pack in `MCPAugmentedPack`. The inner pack factory is
+unaware of MCP; MCP attachment is a registry concern. Import of the `mcp` infrastructure is
+lazy and guarded: a clear `RuntimeError` is raised if the optional `mcp` package is absent.
 
-**Consequences of current state:**
-- Adding a new specialist pack requires editing `registry.py`. This is the accepted cost
-  until T1-4 is implemented.
-- The `SpecialistPack` protocol is stable and will not change for T1-4; only registration changes.
+**Consequences:**
+- Adding a new specialist pack = add a `builder:` entry to config. No registry edits needed.
+- MCP tool servers are attached per-specialist in config. Pack factories need no changes.
+- The `SpecialistPack` protocol is stable; the registry is the only place that handles wrapping.
+- `execute_tool` is `async def` (ADR-011); sync tool functions are called directly without an executor.
 
 ---
 
@@ -224,25 +230,67 @@ tool call/result is appended. Global application logging (option 2) is a pending
 
 ---
 
-## ADR-010: Async-first application layer; sync tools are acceptable
+## ADR-010: Async-first application layer; sync tool implementations are acceptable
 
-**Status:** Accepted
+**Status:** Accepted (amended by Phase 5 — see ADR-011)
 **Date:** 2026-02-24
 
 **Context:** The tool loop is async (LLM calls are awaited). Individual tools (shell, file I/O,
 web fetch) are sync functions. We could make tools async to allow concurrent execution.
 
-**Decision:** Tools remain sync. The tool loop executes them sequentially in the async task.
+**Decision:** The `SpecialistPack.execute_tool()` method is `async def` (as of Phase 5;
+see ADR-011), but the underlying tool implementations remain sync functions called directly
+from within `execute_tool`. Sequential execution (one tool per LLM turn) is preserved.
 This is acceptable because:
 1. Current pack tools are fast relative to LLM round-trips.
 2. Sequential tool execution is predictable and easier to reason about.
-3. The LLM drives the loop; it does not issue parallel tool calls.
+3. The LLM drives the loop; it does not issue parallel tool calls within a single turn.
 
 **Consequences:**
 - Blocking sync calls in tools (subprocess, file I/O, httpx.Client) block the event loop for
   their duration. For short-running tools this is fine.
 - `fetch_url` (research pack) uses `httpx.Client` (sync). If tool execution ever becomes
-  concurrent (e.g., multiple tool calls in one LLM turn are processed in parallel), this will
-  need to be refactored to `httpx.AsyncClient`. Flagged in BACKLOG T2 section.
+  concurrent, this will need refactoring to `httpx.AsyncClient`.
 - `resolve_llm` (blocking) is correctly offloaded via `asyncio.to_thread` in the HTTP handler
   because it runs at request startup, outside the tool loop.
+- MCP tool calls (`session.call_tool()`) are natively async and benefit from the async signature.
+
+---
+
+## ADR-011: Async pack lifecycle (`aopen`/`aclose`) for MCP subprocess management
+
+**Status:** Accepted
+**Date:** 2026-02-24
+
+**Context:** MCP tool servers run as subprocesses (stdio transport) or long-lived HTTP
+connections (SSE transport). They must be started before the tool loop begins and shut down
+after it ends — even if the loop raises an exception. A sync interface cannot cleanly express
+this because the connection/disconnection calls are themselves async (MCP SDK uses anyio).
+
+**Decision:**
+- `SpecialistPack.execute_tool()` is promoted to `async def` (Phase 5).
+- `aopen()` and `aclose()` async lifecycle hooks are added to the `SpecialistPack` Protocol
+  and `BaseSpecialistPack` (no-op defaults, so existing packs need no changes).
+- `MCPAugmentedPack` overrides both: `aopen()` connects all sessions and populates MCP tool
+  definitions; `aclose()` disconnects all sessions with `return_exceptions=True` so one
+  failing disconnect never prevents the others from running.
+- In `_execute_pack_loop`, `aopen()` is called *inside* a `try/finally` block so that `aclose()`
+  is guaranteed to run even if `aopen()` itself raises partway through. This prevents leaking
+  partially-connected MCP sessions.
+- Tool names are namespaced `mcp__<server_name>__<tool>` to avoid collisions with native tools.
+
+**Alternatives considered:**
+- Context-manager protocol (`__aenter__`/`__aexit__`): cleaner for direct `async with` use,
+  but would require changes to `_execute_pack_loop` callsites and adds complexity for callers
+  that don't want lifecycle management (e.g. tests). The explicit `aopen`/`aclose` pair is
+  simpler and works identically from the loop's perspective.
+- Making sync tools async via `asyncio.to_thread`: unnecessary overhead. Sync functions called
+  from an `async def execute_tool` are fine as long as they complete quickly.
+
+**Consequences:**
+- All test stubs implementing `SpecialistPack` must change `execute_tool` to `async def`.
+- MCP server subprocesses are always cleaned up via the `finally` block in `_execute_pack_loop`.
+- The optional `mcp` package is never imported at module level in `session.py`; the import is
+  guarded by `try/except ImportError` and a `_MCP_AVAILABLE` flag, so the `infrastructure/mcp`
+  package is importable without the dep installed. The registry performs a lazy import and raises
+  a clear `RuntimeError` with an install hint when `mcp_servers` is configured without the package.

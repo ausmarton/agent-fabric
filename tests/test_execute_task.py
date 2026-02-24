@@ -74,35 +74,40 @@ async def _run(chat_mock_responses, *, tmp_path, specialist_id="engineering", ma
 
 @pytest.mark.asyncio
 async def test_finish_task_empty_args_rejected_and_llm_retried(tmp_path):
-    """finish_task({}) must be rejected; error returned to LLM; second valid call succeeds."""
+    """finish_task({}) must be rejected; error returned to LLM; a subsequent valid call succeeds."""
+    prior_tool = _tool_response("list_files", call_id="c0")
     invalid_call = LLMResponse(
         content=None,
         tool_calls=[ToolCallRequest(call_id="c1", tool_name="finish_task", arguments={})],
     )
     valid_call = _finish_response(call_id="c2")
 
-    result = await _run([invalid_call, valid_call], tmp_path=tmp_path)
+    result = await _run([prior_tool, invalid_call, valid_call], tmp_path=tmp_path)
 
     # Loop must have continued past the invalid call.
     events = _read_runlog(result.run_dir)
     llm_requests = [e for e in events if e["kind"] == "llm_request"]
-    assert len(llm_requests) == 2, "LLM should have been called twice (retry after invalid)"
+    assert len(llm_requests) == 3, "LLM should be called three times (tool, invalid finish, valid finish)"
 
-    # Final payload must come from the valid second call.
+    # Final payload must come from the valid third call.
     assert result.payload["action"] == "final"
     assert result.payload["summary"] == "Done"
 
-    # The first tool_result must carry the validation error.
-    tool_results = [e for e in events if e["kind"] == "tool_result"]
-    first_result = tool_results[0]["payload"]["result"]
-    assert "error" in first_result
-    assert "missing_fields" in first_result
-    assert "summary" in first_result["missing_fields"]
+    # The finish_task tool_result with the validation error must be present.
+    finish_errors = [
+        e for e in events
+        if e["kind"] == "tool_result"
+        and e["payload"]["tool"] == "finish_task"
+        and "missing_fields" in e["payload"].get("result", {})
+    ]
+    assert len(finish_errors) == 1
+    assert "summary" in finish_errors[0]["payload"]["result"]["missing_fields"]
 
 
 @pytest.mark.asyncio
 async def test_finish_task_missing_required_field_rejected(tmp_path):
     """finish_task without 'summary' must be rejected; only the complete call is accepted."""
+    prior_tool = _tool_response("list_files", call_id="c0")
     # Engineering pack requires 'summary'. Provide artifacts but not summary.
     incomplete = LLMResponse(
         content=None,
@@ -114,42 +119,51 @@ async def test_finish_task_missing_required_field_rejected(tmp_path):
     )
     valid_call = _finish_response(call_id="c2")
 
-    result = await _run([incomplete, valid_call], tmp_path=tmp_path)
+    result = await _run([prior_tool, incomplete, valid_call], tmp_path=tmp_path)
 
     assert result.payload["action"] == "final"
     assert result.payload["summary"] == "Done"
 
     events = _read_runlog(result.run_dir)
-    # Error in first tool_result.
-    first_tool_result = next(
+    # Find the finish_task tool_result that carries the missing-fields error.
+    error_result = next(
         e for e in events
-        if e["kind"] == "tool_result" and e["payload"]["tool"] == "finish_task"
+        if e["kind"] == "tool_result"
+        and e["payload"]["tool"] == "finish_task"
+        and "missing_fields" in e["payload"].get("result", {})
     )
-    assert "error" in first_tool_result["payload"]["result"]
-    assert "summary" in first_tool_result["payload"]["result"]["missing_fields"]
+    assert "summary" in error_result["payload"]["result"]["missing_fields"]
 
 
 @pytest.mark.asyncio
-async def test_finish_task_valid_args_accepted_on_first_call(tmp_path):
-    """finish_task with all required fields succeeds immediately (no retry)."""
-    result = await _run([_finish_response()], tmp_path=tmp_path)
+async def test_finish_task_valid_args_accepted_after_prior_tool_call(tmp_path):
+    """finish_task with all required fields is accepted after a tool has been used (no required-field retry)."""
+    result = await _run(
+        [_tool_response("list_files", call_id="c1"), _finish_response(call_id="c2")],
+        tmp_path=tmp_path,
+    )
 
     assert result.payload["action"] == "final"
     assert result.payload["summary"] == "Done"
 
     events = _read_runlog(result.run_dir)
-    llm_requests = [e for e in events if e["kind"] == "llm_request"]
-    assert len(llm_requests) == 1, "LLM should only be called once for a valid finish_task"
-
-    tool_results = [e for e in events if e["kind"] == "tool_result"]
-    assert tool_results[0]["payload"]["result"] == {"status": "task_completed"}
+    # The finish_task tool_result must indicate task_completed (no error).
+    finish_results = [
+        e for e in events
+        if e["kind"] == "tool_result" and e["payload"]["tool"] == "finish_task"
+    ]
+    assert len(finish_results) == 1
+    assert finish_results[0]["payload"]["result"] == {"status": "task_completed"}
 
 
 @pytest.mark.asyncio
 async def test_finish_task_valid_args_includes_all_provided_fields(tmp_path):
     """All fields provided to finish_task are present in the RunResult payload."""
     result = await _run(
-        [_finish_response(summary="Created API", artifacts=["app.py"], notes="run with uvicorn")],
+        [
+            _tool_response("list_files", call_id="c0"),
+            _finish_response(call_id="c1", summary="Created API", artifacts=["app.py"], notes="run with uvicorn"),
+        ],
         tmp_path=tmp_path,
     )
     assert result.payload["summary"] == "Created API"
@@ -160,6 +174,7 @@ async def test_finish_task_valid_args_includes_all_provided_fields(tmp_path):
 @pytest.mark.asyncio
 async def test_finish_task_research_pack_requires_executive_summary(tmp_path):
     """Research pack's required field is 'executive_summary', not 'summary'."""
+    prior_tool = _tool_response("list_files", call_id="c0")
     # Missing executive_summary → should be rejected.
     incomplete = LLMResponse(
         content=None,
@@ -183,17 +198,73 @@ async def test_finish_task_research_pack_requires_executive_summary(tmp_path):
         )],
     )
 
-    result = await _run([incomplete, valid_call], tmp_path=tmp_path, specialist_id="research")
+    result = await _run([prior_tool, incomplete, valid_call], tmp_path=tmp_path, specialist_id="research")
 
     assert result.payload["action"] == "final"
     assert result.payload["executive_summary"] == "Overview"
 
     events = _read_runlog(result.run_dir)
-    first_tool_result = next(
+    error_result = next(
         e for e in events
-        if e["kind"] == "tool_result" and e["payload"]["tool"] == "finish_task"
+        if e["kind"] == "tool_result"
+        and e["payload"]["tool"] == "finish_task"
+        and "missing_fields" in e["payload"].get("result", {})
     )
-    assert "executive_summary" in first_tool_result["payload"]["result"]["missing_fields"]
+    assert "executive_summary" in error_result["payload"]["result"]["missing_fields"]
+
+
+# ---------------------------------------------------------------------------
+# Structural quality gate: finish_task requires prior tool call
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_finish_task_without_prior_tool_call_is_rejected(tmp_path):
+    """finish_task called before any other tool is rejected; the LLM is asked to do work first."""
+    # Step 0: finish_task immediately (no prior tool) → blocked
+    # Step 1: list_files → any_non_finish_tool_called = True
+    # Step 2: finish_task → accepted
+    premature_finish = _finish_response(call_id="c1")
+    prior_tool = _tool_response("list_files", call_id="c2")
+    valid_finish = _finish_response(call_id="c3")
+
+    result = await _run([premature_finish, prior_tool, valid_finish], tmp_path=tmp_path)
+
+    assert result.payload["action"] == "final"
+
+    events = _read_runlog(result.run_dir)
+    # The premature finish must produce the "no work done" error.
+    no_work_errors = [
+        e for e in events
+        if e["kind"] == "tool_result"
+        and e["payload"]["tool"] == "finish_task"
+        and e["payload"].get("result", {}).get("error") == "finish_task_called_without_doing_work"
+    ]
+    assert len(no_work_errors) == 1
+
+    # Three LLM calls: premature finish (rejected), list_files, valid finish.
+    llm_requests = [e for e in events if e["kind"] == "llm_request"]
+    assert len(llm_requests) == 3
+
+
+@pytest.mark.asyncio
+async def test_finish_task_allowed_after_failed_tool_call(tmp_path):
+    """A tool that raises an exception still counts as 'attempted'; finish_task is allowed afterward."""
+    # list_files will raise (mocked to fail), but any_non_finish_tool_called is still set True.
+    responses = [_tool_response("list_files", call_id="c1"), _finish_response(call_id="c2")]
+    with _patch_execute_tool(OSError("disk full")):
+        result = await _run(responses, tmp_path=tmp_path)
+
+    assert result.payload["action"] == "final"
+    events = _read_runlog(result.run_dir)
+    # The failed list_files should produce a tool_error (not tool_result).
+    assert any(e["kind"] == "tool_error" for e in events)
+    # finish_task should succeed (no "no work done" error).
+    no_work_errors = [
+        e for e in events
+        if e["kind"] == "tool_result"
+        and e["payload"].get("result", {}).get("error") == "finish_task_called_without_doing_work"
+    ]
+    assert len(no_work_errors) == 0
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,37 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
+class MCPServerConfig(BaseModel):
+    """Configuration for one MCP (Model Context Protocol) tool server.
+
+    Each server exposes tools that are merged into the specialist pack's
+    tool_definitions and dispatched via the MCP session at runtime.
+    """
+
+    name: str = Field(..., description="Server name — used as tool prefix: mcp__<name>__<tool>.")
+    transport: str = Field("stdio", description="Transport type: 'stdio' or 'sse'.")
+    # stdio fields
+    command: Optional[str] = Field(None, description="Executable to launch (stdio transport).")
+    args: List[str] = Field(default_factory=list, description="Arguments for the command.")
+    env: Optional[Dict[str, str]] = Field(None, description="Environment variables for the subprocess.")
+    # sse fields
+    url: Optional[str] = Field(None, description="SSE endpoint URL (sse transport).")
+    headers: Dict[str, str] = Field(default_factory=dict, description="HTTP headers for SSE transport.")
+    timeout_s: float = Field(30.0, description="Timeout in seconds for MCP calls.")
+
+    @model_validator(mode="after")
+    def _check_transport_fields(self) -> "MCPServerConfig":
+        if self.transport == "stdio" and not self.command:
+            raise ValueError(
+                f"MCPServerConfig {self.name!r}: transport='stdio' requires 'command' to be set."
+            )
+        if self.transport == "sse" and not self.url:
+            raise ValueError(
+                f"MCPServerConfig {self.name!r}: transport='sse' requires 'url' to be set."
+            )
+        return self
+
+
 class ModelConfig(BaseModel):
     """LLM endpoint and model name (OpenAI chat-completions API). Defaults: Ollama."""
     base_url: str = Field(..., description="e.g. http://localhost:11434/v1 or http://localhost:8000/v1")
@@ -49,6 +80,25 @@ class SpecialistConfig(BaseModel):
             "When omitted the built-in pack for this specialist id is used."
         ),
     )
+    mcp_servers: List[MCPServerConfig] = Field(
+        default_factory=list,
+        description=(
+            "MCP tool servers to attach to this specialist pack. "
+            "Tools from each server are merged into the pack's tool_definitions "
+            "and dispatched via the MCP session at runtime."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_mcp_server_names_unique(self) -> "SpecialistConfig":
+        names = [s.name for s in self.mcp_servers]
+        if len(names) != len(set(names)):
+            duplicates = sorted({n for n in names if names.count(n) > 1})
+            raise ValueError(
+                f"Duplicate MCP server names in specialist config: {duplicates}. "
+                "Each MCP server must have a unique 'name'."
+            )
+        return self
 
 
 class TelemetryConfig(BaseModel):
@@ -112,6 +162,14 @@ class FabricConfig(BaseModel):
     auto_pull_model: str = Field(
         "qwen2.5:7b",
         description="Model to pull when auto_pull_if_missing is True and no models are available.",
+    )
+    routing_model_key: str = Field(
+        "fast",
+        description=(
+            "Key into 'models' used for the LLM routing call (llm_recruit_specialist). "
+            "Defaults to 'fast' so routing uses a lightweight model rather than the task "
+            "model. Falls back to the task model if the key is not present in 'models'."
+        ),
     )
 
 
