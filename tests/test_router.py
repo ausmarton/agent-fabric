@@ -4,25 +4,49 @@ from __future__ import annotations
 import pytest
 from agent_fabric.application.recruit import recruit_specialist
 from agent_fabric.config import DEFAULT_CONFIG
+from agent_fabric.config.schema import FabricConfig, SpecialistConfig
 
 
-def test_recruit_engineering_keywords():
-    assert recruit_specialist("I need to build a Python service", DEFAULT_CONFIG) == "engineering"
-    assert recruit_specialist("implement a pipeline in Scala", DEFAULT_CONFIG) == "engineering"
-    assert recruit_specialist("deploy to kubernetes", DEFAULT_CONFIG) == "engineering"
+@pytest.mark.parametrize("prompt,expected", [
+    # engineering keywords
+    ("I need to build a Python service", "engineering"),
+    ("implement a pipeline in Scala", "engineering"),
+    ("deploy to kubernetes", "engineering"),
+    # research keywords
+    ("systematic review of literature", "research"),
+    ("survey papers on arxiv", "research"),
+    ("bibliography and citations", "research"),
+])
+def test_keyword_routing(prompt, expected):
+    assert recruit_specialist(prompt, DEFAULT_CONFIG) == expected
 
 
-def test_recruit_research_keywords():
-    assert recruit_specialist("systematic review of literature", DEFAULT_CONFIG) == "research"
-    assert recruit_specialist("survey papers on arxiv", DEFAULT_CONFIG) == "research"
-    assert recruit_specialist("bibliography and citations", DEFAULT_CONFIG) == "research"
+@pytest.mark.parametrize("prompt,expected", [
+    ("write some code", "engineering"),
+    ("build a small API", "engineering"),
+    ("explore a topic", "research"),
+    ("tell me about something", "research"),
+])
+def test_fallback_routing(prompt, expected):
+    assert recruit_specialist(prompt, DEFAULT_CONFIG) == expected
 
 
-def test_recruit_fallback_engineering():
-    assert recruit_specialist("write some code", DEFAULT_CONFIG) == "engineering"
-    assert recruit_specialist("build a small API", DEFAULT_CONFIG) == "engineering"
+def _make_tie_config(first: str, second: str) -> FabricConfig:
+    """Two specialists sharing the same keyword; order controls tie-break."""
+    return FabricConfig(
+        models=DEFAULT_CONFIG.models,
+        specialists={
+            first: SpecialistConfig(description=first, keywords=["foo"], workflow=first),
+            second: SpecialistConfig(description=second, keywords=["foo"], workflow=second),
+        },
+    )
 
 
-def test_recruit_fallback_research():
-    assert recruit_specialist("explore a topic", DEFAULT_CONFIG) == "research"
-    assert recruit_specialist("tell me about something", DEFAULT_CONFIG) == "research"
+@pytest.mark.parametrize("first,second,expected", [
+    ("alpha", "beta", "alpha"),  # alpha listed first → wins the tie
+    ("beta", "alpha", "beta"),   # beta listed first → wins the tie
+])
+def test_tie_break_uses_config_order(first, second, expected):
+    """When two specialists score equally, the one first in config wins."""
+    config = _make_tie_config(first, second)
+    assert recruit_specialist("foo bar", config) == expected

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 
@@ -14,7 +15,7 @@ from rich.panel import Panel
 
 from agent_fabric.application.execute_task import execute_task
 from agent_fabric.config import load_config
-from agent_fabric.domain import Task
+from agent_fabric.domain import Task, build_task
 from agent_fabric.infrastructure.llm_discovery import resolve_llm
 from agent_fabric.infrastructure.ollama import OllamaChatClient
 from agent_fabric.infrastructure.workspace import FileSystemRunRepository
@@ -33,8 +34,14 @@ def run(
     pack: str = typer.Option("", help="Force a pack (engineering|research). Leave empty for auto-routing."),
     model_key: str = typer.Option("quality", help="Which model profile to use (quality|fast)."),
     network_allowed: bool = typer.Option(True, help="Allow network tools (web_search, fetch_url)."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose (DEBUG) logging to stderr."),
 ) -> None:
     """Run a task end-to-end and print result + run directory."""
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
     config = load_config()
     try:
         resolved = resolve_llm(config, model_key)
@@ -53,12 +60,7 @@ def run(
     run_repository = FileSystemRunRepository(workspace_root=_workspace_root())
     specialist_registry = ConfigSpecialistRegistry(config)
 
-    task = Task(
-        prompt=prompt,
-        specialist_id=pack.strip() or None,
-        model_key=model_key,
-        network_allowed=network_allowed,
-    )
+    task = build_task(prompt, pack, model_key, network_allowed)
     try:
         result = asyncio.run(
             execute_task(

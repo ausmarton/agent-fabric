@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from agent_fabric.config.constants import MAX_TOOL_OUTPUT_CHARS, SHELL_DEFAULT_TIMEOUT_S
+
 
 @dataclass
 class SandboxPolicy:
@@ -17,7 +19,7 @@ class SandboxPolicy:
         "python", "python3", "pytest", "bash", "sh", "git", "rg", "ls", "cat", "sed", "awk", "jq", "pip", "uv", "make"
     )
     network_allowed: bool = True
-    max_output_chars: int = 50_000
+    max_output_chars: int = MAX_TOOL_OUTPUT_CHARS
 
 
 def _truncate(s: str, limit: int) -> str:
@@ -30,7 +32,7 @@ def run_cmd(
     policy: SandboxPolicy,
     cmd: List[str],
     cwd: Optional[Path] = None,
-    timeout_s: int = 120,
+    timeout_s: int = SHELL_DEFAULT_TIMEOUT_S,
 ) -> dict:
     if not cmd:
         raise ValueError("Empty command")

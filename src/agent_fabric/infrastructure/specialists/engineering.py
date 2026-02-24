@@ -11,51 +11,43 @@ from agent_fabric.infrastructure.tools.shell_tools import run_shell
 
 from .base import BaseSpecialistPack
 from .prompts import SYSTEM_PROMPT_ENGINEERING
+from agent_fabric.config.constants import SHELL_DEFAULT_TIMEOUT_S
+from .tool_defs import (
+    make_tool_def,
+    make_finish_tool_def,
+    READ_FILE_TOOL_DEF,
+    WRITE_FILE_TOOL_DEF,
+    LIST_FILES_TOOL_DEF,
+)
 
 
-def _tool(name: str, description: str, parameters: Dict[str, Any]):
-    """Convenience: build an OpenAI function tool definition."""
-    return {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": description,
-            "parameters": parameters,
-        },
-    }
-
-
-_FINISH_TOOL_DEF = _tool(
-    name="finish_task",
+_FINISH_TOOL_DEF = make_finish_tool_def(
     description=(
         "Call this when the task is complete. Provide a clear summary of what was "
         "accomplished, list any artefact file paths, and note any remaining steps "
         "(e.g. deployment commands that require human approval)."
     ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "summary": {
-                "type": "string",
-                "description": "What was accomplished (be specific).",
-            },
-            "artifacts": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Relative paths of files created or modified.",
-            },
-            "next_steps": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Any remaining steps, especially ones needing human approval.",
-            },
-            "notes": {
-                "type": "string",
-                "description": "Caveats, test commands, or anything useful to know.",
-            },
+    properties={
+        "summary": {
+            "type": "string",
+            "description": "What was accomplished (be specific).",
         },
-        "required": ["summary"],
+        "artifacts": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Relative paths of files created or modified.",
+        },
+        "next_steps": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Any remaining steps, especially ones needing human approval.",
+        },
+        "notes": {
+            "type": "string",
+            "description": "Caveats, test commands, or anything useful to know.",
+        },
     },
+    required=["summary"],
 )
 
 
@@ -71,7 +63,7 @@ def build_engineering_pack(workspace_path: str, network_allowed: bool = False) -
 
     tools: Dict[str, Tuple[Dict[str, Any], Any]] = {
         "shell": (
-            _tool(
+            make_tool_def(
                 "shell",
                 "Run a shell command inside the sandbox workspace. Use for compiling, "
                 "testing, running scripts, git operations, etc.",
@@ -91,54 +83,11 @@ def build_engineering_pack(workspace_path: str, network_allowed: bool = False) -
                     "required": ["cmd"],
                 },
             ),
-            lambda cmd, timeout_s=120: run_shell(policy, cmd, timeout_s=timeout_s),
+            lambda cmd, timeout_s=SHELL_DEFAULT_TIMEOUT_S: run_shell(policy, cmd, timeout_s=timeout_s),
         ),
-        "read_file": (
-            _tool(
-                "read_file",
-                "Read the UTF-8 text content of a file in the workspace.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string", "description": "Relative path inside the workspace."},
-                    },
-                    "required": ["path"],
-                },
-            ),
-            lambda path: read_text(policy, path),
-        ),
-        "write_file": (
-            _tool(
-                "write_file",
-                "Write (or overwrite) a file in the workspace, creating parent directories as needed.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string", "description": "Relative path inside the workspace."},
-                        "content": {"type": "string", "description": "File content as a UTF-8 string."},
-                    },
-                    "required": ["path", "content"],
-                },
-            ),
-            lambda path, content: write_text(policy, path, content),
-        ),
-        "list_files": (
-            _tool(
-                "list_files",
-                "List all files currently in the workspace.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "max_files": {
-                            "type": "integer",
-                            "description": "Maximum number of files to return (default 500).",
-                        },
-                    },
-                    "required": [],
-                },
-            ),
-            lambda max_files=500: list_tree(policy, max_files=max_files),
-        ),
+        "read_file": (READ_FILE_TOOL_DEF, lambda path: read_text(policy, path)),
+        "write_file": (WRITE_FILE_TOOL_DEF, lambda path, content: write_text(policy, path, content)),
+        "list_files": (LIST_FILES_TOOL_DEF, lambda max_files=500: list_tree(policy, max_files=max_files)),
     }
 
     return BaseSpecialistPack(

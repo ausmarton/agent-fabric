@@ -1,145 +1,308 @@
-# agent-fabric: Target Architecture
+# agent-fabric: Architecture
 
-This document defines the **target architecture** for agent-fabric. We are building from the ground up; the previous code was a throwaway PoC. This design replaces it with a clear structure, good engineering practices, and alignment with the vision (Ollama-first, task → recruit task force, quality-first).
+**Purpose:** Layer boundaries, key classes, data flow, and extension points.
+Read this before making structural changes or adding a new specialist pack.
 
----
-
-## 1. Design principles
-
-- **Layered architecture** — Domain has no I/O; application depends on abstractions (ports); infrastructure implements them. Interfaces (CLI, API) wire everything and depend on application + infrastructure.
-- **Ollama-first** — Local inference is via Ollama by default; the LLM is behind an abstraction so we can swap or add backends without polluting the core.
-- **Explicit naming** — Modules, classes, and functions have clear, consistent names that reflect their responsibility. No prototype-style `_v1` or vague `supervisor`/`router` at the core.
-- **Single responsibility** — Each module and class has one reason to change. Use cases are thin; domain is pure; infrastructure is adapters only.
-- **Testability** — Domain and application are testable without real Ollama or file system; infrastructure is tested with fakes or integration tests.
+See [DECISIONS.md](DECISIONS.md) for the *why* behind each major design choice.
+See [BACKLOG.md](BACKLOG.md) for what is next.
 
 ---
 
-## 2. Layers and responsibilities
+## 1. Layer overview
 
-| Layer | Responsibility | Depends on | No dependency on |
-|-------|----------------|------------|-------------------|
-| **Domain** | Entities, value objects, core rules. What is a Run, a Task, a Capability, a Specialist? | Nothing (pure) | I/O, HTTP, Ollama, config |
-| **Application** | Use cases: “execute a task”, “recruit specialists”. Orchestration logic. | Domain, ports (abstract interfaces) | Concrete Ollama, concrete tools, concrete storage |
-| **Infrastructure** | Ollama client, run directory and run log, tool implementations (shell, file, web), config loading. | Domain (types only where needed) | Application use-case internals |
-| **Interfaces** | CLI and HTTP API. Parse args, load config, call use cases, return responses. | Application, Infrastructure, Config | — |
+agent-fabric uses a strict hexagonal (ports-and-adapters) architecture.
+Arrows show allowed import directions — the application core never imports
+from infrastructure or interfaces.
 
-**Dependency rule:** Inner layers do not depend on outer layers. Domain ← Application ← (Infrastructure, Interfaces). Infrastructure and Interfaces can depend on Application and Config.
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Interfaces  (entry points — wire everything together)      │
+│                                                             │
+│   cli.py (Typer)            http_api.py (FastAPI)           │
+│   `fabric run / serve`      GET /health · POST /run         │
+└──────────────────┬──────────────────────────────────────────┘
+                   │ calls
+┌──────────────────▼──────────────────────────────────────────┐
+│  Application  (orchestration + ports)                       │
+│                                                             │
+│   execute_task()            recruit_specialist()            │
+│                                                             │
+│   Ports (Protocol interfaces defined here):                 │
+│     ChatClient · RunRepository                              │
+│     SpecialistRegistry · SpecialistPack                     │
+└──────┬─────────────────────────────────┬────────────────────┘
+       │ imports domain                  │ imports domain
+┌──────▼──────────┐        ┌─────────────▼──────────────────────┐
+│  Domain         │        │  Infrastructure  (adapters)        │
+│  (pure data)    │        │                                    │
+│                 │        │  OllamaChatClient                  │
+│  Task           │        │    → implements ChatClient         │
+│  RunId          │        │  FileSystemRunRepository           │
+│  RunResult      │        │    → implements RunRepository      │
+│  LLMResponse    │        │  ConfigSpecialistRegistry          │
+│  ToolCallRequest│        │    → implements SpecialistRegistry │
+│  RecruitError   │        │  BaseSpecialistPack                │
+│  FabricError    │        │    → implements SpecialistPack     │
+└─────────────────┘        │  engineering / research packs      │
+                           │  sandbox · file / shell / web tools│
+                           │  llm_discovery · llm_bootstrap     │
+                           └────────────────────────────────────┘
+
+  Config  (cross-cutting — any layer may import)
+  ┌──────────────────────────────────────────────────────────┐
+  │  FabricConfig · ModelConfig · SpecialistConfig           │
+  │  load_config() [lru_cache] · constants.py                │
+  └──────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 3. Package layout (target and current)
-
-**Current layout** — single code path; **src layout**; package **`agent_fabric`** (consistent with repo name agent-fabric).
+## 2. Component map
 
 ```
 src/agent_fabric/
-  domain/                    # Pure domain
-    __init__.py
-    models.py                # RunId, Task, RunResult
-    errors.py                # FabricError, RecruitError, ToolExecutionError
-
-  application/               # Use cases and orchestration
-    __init__.py
-    ports.py                 # ChatClient, RunRepository, SpecialistPack, SpecialistRegistry
-    execute_task.py          # execute_task use case: recruit → run → tool loop
-    recruit.py               # recruit_specialist (keyword-based)
-    json_parsing.py          # extract_json (model output)
-
-  config/                    # Configuration
-    __init__.py
-    schema.py                # FabricConfig, ModelConfig, SpecialistConfig (Ollama defaults)
-    loader.py                # load_config from FABRIC_CONFIG_PATH or default
-
-  infrastructure/            # Adapters
-    __init__.py
-    ollama/
-      client.py              # OllamaChatClient (implements ChatClient)
-    workspace/
-      run_directory.py       # create_run_directory()
-      run_log.py             # append_event()
-      run_repository.py      # FileSystemRunRepository (composes the two above)
-    tools/
-      sandbox.py, file_tools.py, shell_tools.py, web_tools.py
-    specialists/
-      base.py                # BaseSpecialistPack
-      engineering.py, research.py, prompts.py
-      registry.py            # ConfigSpecialistRegistry
-
-  interfaces/
-    cli.py                   # Typer app: run, serve (entrypoint: fabric)
-    http_api.py              # FastAPI: GET /health, POST /run
+│
+├── domain/
+│   ├── models.py        Task · RunId · RunResult
+│   │                    LLMResponse · ToolCallRequest
+│   └── errors.py        FabricError · RecruitError
+│
+├── application/
+│   ├── execute_task.py  Main use-case: recruit → create run → tool loop → result
+│   ├── recruit.py       recruit_specialist(): keyword scoring → specialist_id
+│   └── ports.py         ChatClient · RunRepository · SpecialistRegistry
+│                        SpecialistPack  (Protocol interfaces)
+│
+├── infrastructure/
+│   ├── ollama/
+│   │   └── client.py        OllamaChatClient
+│   │                          • POST /v1/chat/completions (OpenAI format)
+│   │                          • native tool calling (tool_calls in response)
+│   │                          • 400 retry with minimal payload on older Ollama
+│   ├── workspace/
+│   │   ├── run_repository.py FileSystemRunRepository
+│   │   ├── run_directory.py  create_run_directory()
+│   │   │                       → .fabric/runs/<uuid>/{workspace/, runlog.jsonl}
+│   │   └── run_log.py        append_event() — one JSON line per event
+│   ├── specialists/
+│   │   ├── base.py           BaseSpecialistPack
+│   │   │                       holds: system_prompt, tool map, finish_tool_def
+│   │   │                       exposes: tool_definitions, execute_tool()
+│   │   ├── registry.py       ConfigSpecialistRegistry
+│   │   │                       • _DEFAULT_BUILDERS for built-in packs
+│   │   │                       • dynamic import via SpecialistConfig.builder
+│   │   ├── engineering.py    build_engineering_pack()
+│   │   │                       tools: shell, read_file, write_file, list_files
+│   │   ├── research.py       build_research_pack()
+│   │   │                       tools: web_search*, fetch_url*, write_file,
+│   │   │                              read_file, list_files   (* if network_allowed)
+│   │   ├── tool_defs.py      make_tool_def() · make_finish_tool_def()
+│   │   │                       READ/WRITE/LIST_FILES_TOOL_DEF (shared constants)
+│   │   └── prompts.py        SYSTEM_PROMPT_ENGINEERING · SYSTEM_PROMPT_RESEARCH
+│   ├── tools/
+│   │   ├── sandbox.py        SandboxPolicy · run_cmd() · safe_path()
+│   │   │                       path-escape prevention + command allowlist
+│   │   ├── shell_tools.py    run_shell() — wraps run_cmd
+│   │   ├── file_tools.py     read_text() · write_text() · list_tree()
+│   │   └── web_tools.py      web_search() · fetch_url()
+│   ├── llm_discovery.py      resolve_llm() — probe backend, select model
+│   │                           discover_ollama_models() / discover_openai_models()
+│   │                           select_model() with param-size sort key
+│   └── llm_bootstrap.py      ensure_llm_available() — start Ollama if needed
+│
+├── interfaces/
+│   ├── cli.py            Typer app: `fabric run --verbose` / `fabric serve`
+│   └── http_api.py       FastAPI: GET /health · POST /run
+│
+└── config/
+    ├── schema.py         FabricConfig · ModelConfig · SpecialistConfig
+    │                       DEFAULT_CONFIG (Ollama @ localhost:11434)
+    ├── loader.py         load_config() — lru_cache(maxsize=1)
+    │                       reads FABRIC_CONFIG_PATH env var
+    └── constants.py      MAX_TOOL_OUTPUT_CHARS · MAX_LLM_CONTENT_IN_RUNLOG_CHARS
+                          LLM_DISCOVERY_TIMEOUT_S · LLM_CHAT_DEFAULT_TIMEOUT_S
+                          SHELL_DEFAULT_TIMEOUT_S · LLM_PULL_TIMEOUT_S
 ```
 
-Repo root also has: **examples/** (example config, e.g. `examples/ollama.json`), **tests/**, **docs/**, **scripts/**.
+---
 
-**Naming:** Modules `snake_case` (e.g. `execute_task.py`, `run_log.py`). Classes `PascalCase`. See ENGINEERING.md for full conventions.
+## 3. Task execution: data flow
 
-**Naming conventions** (see also ENGINEERING.md):
+### ASCII flow
 
-- **Modules:** `snake_case` (e.g. `execute_task.py`, `run_log.py`).
-- **Classes:** `PascalCase`. Domain: `Run`, `RunId`, `Task`, `Capability`. Infrastructure: `OllamaChatClient`, `RunRepository`.
-- **Functions:** `snake_case`. Use-case entry: `execute_task`. Internal: `_parse_tool_response`.
-- **Constants:** `UPPER_SNAKE` for true constants; config keys follow schema.
-- **Private:** Leading `_` for module-private (e.g. `_default_config()`).
+```
+ User / HTTP client
+       │
+       │  Task(prompt, specialist_id?, model_key, network_allowed)
+       ▼
+  execute_task()
+       │
+       ├─ [specialist_id is None?]
+       │    recruit_specialist(prompt, config)
+       │      keyword scoring → specialist_id
+       │
+       ├─ SpecialistRegistry.get_pack(id, workspace_path, network_allowed)
+       │    returns SpecialistPack
+       │      system_prompt, tool_definitions, finish_tool_name,
+       │      finish_required_fields, execute_tool()
+       │
+       ├─ RunRepository.create_run()
+       │    creates .fabric/runs/<uuid>/workspace/
+       │    returns (RunId, run_dir, workspace_path)
+       │
+       └─ Tool loop  (up to max_steps, default 40)
+             │
+             ├─ append_event("llm_request")
+             ├─ ChatClient.chat(messages, model, tools=pack.tool_definitions)
+             ├─ append_event("llm_response")
+             │
+             └─ for each tool_call in response.tool_calls:
+                  │
+                  ├─ [tool_name == finish_task]
+                  │    validate required fields present
+                  │    ├─ missing → send error result to LLM, continue loop
+                  │    └─ valid  → append_event("tool_result")
+                  │               set finish_payload, break loop
+                  │
+                  └─ [regular tool]
+                       SpecialistPack.execute_tool(name, args)
+                         runs inside SandboxPolicy
+                       ├─ success       → append_event("tool_result")
+                       ├─ PermissionError → append_event("tool_error") +
+                       │                    append_event("security_event")
+                       └─ other error   → append_event("tool_error")
+                       result appended to messages → next LLM call
+
+       Returns RunResult(run_id, run_dir, workspace_path,
+                         specialist_id, model_name, payload)
+```
+
+### Sequence diagram (happy path)
+
+```
+ CLI/HTTP   execute_task  recruit  SpecReg  RunRepo   ChatClient  Pack
+    │            │           │        │        │           │        │
+    │──Task──────▶           │        │        │           │        │
+    │            │──prompt──▶│        │        │           │        │
+    │            │◀──id──────│        │        │           │        │
+    │            │──get_pack──────────▶        │           │        │
+    │            │◀──pack────────────│        │           │        │
+    │            │──create_run────────────────▶│           │        │
+    │            │◀──(run_id, dirs)───────────│           │        │
+    │            │                            │           │        │
+    │         ┌──┤ step 0..N                  │           │        │
+    │         │  │──append(llm_request)───────▶           │        │
+    │         │  │──chat(msgs, tools)─────────────────────▶        │
+    │         │  │◀──LLMResponse(tool_calls)─────────────│        │
+    │         │  │──append(llm_response)──────▶           │        │
+    │         │  │──execute_tool(name, args)───────────────────────▶│
+    │         │  │◀──result dict──────────────────────────────────│
+    │         │  │──append(tool_result)───────▶           │        │
+    │         └──┤ finish_task (valid) → break            │        │
+    │            │                            │           │        │
+    │◀──RunResult│                            │           │        │
+```
 
 ---
 
-## 4. Key abstractions (ports)
+## 4. Runlog events
 
-The application layer depends on **ports** (abstract interfaces), not concrete implementations.
+Every run produces `.fabric/runs/<id>/runlog.jsonl`.
+Each line is a JSON record:
 
-- **ChatClient** (port) — `async def chat(messages, model, **params) -> str`. Implemented by `OllamaChatClient` (and later, e.g. OpenAI fallback).
-- **RunRepository** (port) — Create run, resolve workspace path, append run-log events. Implemented by `FileSystemRunRepository` (run_directory + run_log).
-- **ToolExecutor** (port) — Execute a tool by name with args; returns result dict. Implemented by tool registry that delegates to sandboxed file/shell/web tools.
-- **SpecialistRegistry** (port) — Resolve specialist pack by id (e.g. `engineering`, `research`). Returns SpecialistPack (name, system_prompt, tools). Implemented by config-driven registry loading from `infrastructure.specialists`.
+```json
+{"ts": 1708800000.123, "kind": "<kind>", "step": "step_0", "payload": {...}}
+```
 
-Config (model base URL, model name, timeouts, which specialists exist) is loaded at the interface layer and passed into use cases or infrastructure constructors; the application does not read env or files directly.
+| `kind` | When | Key payload fields |
+|---|---|---|
+| `llm_request` | Before each LLM call | `step`, `message_count` |
+| `llm_response` | After each LLM call | `content` (truncated to 2 000 chars), `tool_calls` |
+| `tool_call` | Before executing a tool | `tool`, `args` |
+| `tool_result` | Successful tool call, or accepted `finish_task` | `tool`, `result` |
+| `tool_error` | Tool raised an exception | `tool`, `error_type`, `error_message` |
+| `security_event` | `PermissionError` from tool (sandbox escape attempt) | `event_type: "sandbox_violation"`, `tool`, `error_message` |
 
----
-
-## 5. Flow: execute task (use case)
-
-1. **Interfaces** (CLI or API): Parse prompt and options; load config; call `execute_task(prompt, specialist_id=None, model_key=..., workspace_root=..., network_allowed=...)`.
-2. **Application** (`execute_task`):
-   - Resolve specialist: if `specialist_id` given, use it; else **recruit** (today: keyword-based selection; later: capability-based). Result: one or more specialist ids (today: one).
-   - For each specialist (today: one): get `SpecialistPack` (system prompt, tools) from SpecialistRegistry; create run via RunRepository; run **tool loop** until completion or max steps:
-     - Build messages (system + user + prior turns); call **ChatClient.chat**; parse response (tool call or final answer); if tool call, call **ToolExecutor**, append tool result to messages, repeat; if final, persist and return run result.
-   - Return aggregated result (run id, workspace path, run log path, final payload).
-3. **Infrastructure**: Ollama client does HTTP to Ollama; RunRepository creates `.fabric/runs/<run_id>/` and `workspace/` and appends events to `runlog.jsonl`; ToolExecutor runs tools in sandbox and returns structured results.
-
-Domain types (`Run`, `RunId`, `Task`, etc.) are used in the application and optionally in infrastructure; they contain no I/O.
+`tool_error` and `security_event` are emitted together when a `PermissionError`
+occurs — the former for the error classification, the latter as an explicit audit trail.
 
 ---
 
-## 6. What we do not carry over from the PoC
+## 5. Extension points
 
-- **No** flat “supervisor”, “router”, “workflows/engineering_v1” as the main entry points. Replaced by application use case `execute_task` and clear recruit/orchestration (recruit module).
-- **No** “workflows” as separate per-pack loops with duplicated JSON-parsing and tool-dispatch logic. Replaced by one **tool loop** in the application, parameterised by specialist pack (system prompt + tools).
-- **No** ad-hoc “run_task” in a module that also creates run dirs and knows about LLM client. Replaced by ExecuteTask use case that depends on ports; run dir and LLM are behind RunRepository and ChatClient.
-- **No** config and “router” mixed with execution. Config is loaded at the edge; recruit (router) is a clear step that returns specialist id(s); execution uses only those ids and config passed in.
-- **No** `_v1` or “v1” in public names. Specialist packs are named by domain (engineering, research); versions are internal if ever needed.
+### New LLM backend
+
+Implement the `ChatClient` protocol (`application/ports.py`):
+
+```python
+class MyBackendClient:
+    async def chat(
+        self, messages, model, *, tools=None,
+        temperature, top_p, max_tokens,
+    ) -> LLMResponse: ...
+```
+
+Inject at the interface layer. No changes to `execute_task` or any other layer.
+
+### New specialist pack
+
+**Option A — config-driven (no core code change):**
+
+1. Write a factory: `build_my_pack(workspace_path: str, network_allowed: bool) -> SpecialistPack`
+2. In your `FABRIC_CONFIG_PATH` YAML, set `builder: "mymodule:build_my_pack"` on the specialist entry.
+
+**Option B — built-in:**
+
+1. Add `infrastructure/specialists/mypacks.py` with a `build_my_pack()` factory.
+2. Register in `_DEFAULT_BUILDERS` in `infrastructure/specialists/registry.py`.
+3. Add the specialist entry to `DEFAULT_CONFIG` in `config/schema.py`.
+
+Both options use `BaseSpecialistPack` and `tool_defs.make_tool_def()` /
+`make_finish_tool_def()` to build the tool definitions.
+
+### New tool
+
+Add a function in `infrastructure/tools/` that accepts a `SandboxPolicy` and
+returns a `dict`. Register it in the appropriate pack's factory using
+`make_tool_def(name, description, parameters)` for the OpenAI definition.
 
 ---
 
-## 7. Phasing the rebuild
+## 6. Config and startup
 
-1. **Phase A (skeleton)** — Create the package layout above; domain models and errors; ports (interfaces); config schema and loader. Implement minimal ExecuteTask (single specialist, keyword recruit) and one specialist pack (engineering) with tool loop; Ollama client and file-based run log; CLI and API that call `execute_task`. No dependency on prototype code; design is from first principles (see docs/DESIGN.md).
-2. **Phase B** — Add research specialist; harden tool loop (retries, better JSON handling); run log and run directory fully behind RunRepository.
-3. **Phase C** — Capability model and recruit from capabilities (still single specialist per run); then multi-specialist task force if needed.
+```
+FABRIC_CONFIG_PATH (env var, optional)
+        │
+        ▼
+ load_config()  ← lru_cache(maxsize=1): read once per process
+        │              call load_config.cache_clear() to force reload
+        ▼
+ FabricConfig
+   ├── models: {key → ModelConfig(base_url, model, temperature, …)}
+   ├── specialists: {id → SpecialistConfig(description, keywords, builder?)}
+   ├── local_llm_ensure_available: bool  (default True)
+   └── local_llm_start_cmd: list[str]   (default ["ollama", "serve"])
 
-Tests: unit tests for domain and application (mocked ports); integration tests for infrastructure (Ollama client against real Ollama or mock server; run directory and run log on disk). No tests that depend on the old prototype structure.
+ CLI / HTTP startup:
+   resolve_llm(config, model_key)
+     ├── [ensure_available] ensure_llm_available() — start server if down
+     ├── discover_ollama_models()  or  discover_openai_models()
+     └── select_model() — prefer configured model; fall back to smallest
+         returns ResolvedLLM(base_url, model, model_config)
+```
 
 ---
 
-## 8. File and module naming summary
+## 7. Dependency rule summary
 
-| Area | Naming | Example |
-|------|--------|--------|
-| Domain entities | PascalCase, noun | `Run`, `RunId`, `Task`, `Capability` |
-| Application use cases | snake_case, verb | `execute_task`, `recruit_specialists` |
-| Ports (interfaces) | PascalCase, role | `ChatClient`, `RunRepository`, `ToolExecutor` |
-| Infrastructure adapters | PascalCase, concrete | `OllamaChatClient`, `FileSystemRunRepository` |
-| Modules | snake_case | `execute_task.py`, `run_log.py`, `ollama/client.py` |
-| Config | PascalCase for schema | `FabricConfig`, `ModelConfig` |
+| Layer | May import from |
+|---|---|
+| `domain` | stdlib only |
+| `application` | `domain`, `config` |
+| `infrastructure` | `domain`, `application.ports`, `config` |
+| `interfaces` | all layers |
+| `config` | stdlib + pydantic only |
 
-See **ENGINEERING.md** for full coding standards and practices.
+Violations of this rule break testability: `execute_task` tests run with
+mocked ports and never touch a real LLM or filesystem because the application
+layer is kept clean.

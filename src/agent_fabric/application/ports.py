@@ -75,6 +75,18 @@ class SpecialistPack(Protocol):
         """Name of the tool that terminates the loop (e.g. ``'finish_task'``)."""
         ...
 
+    @property
+    def finish_required_fields(self) -> List[str]:
+        """Required argument field names for the finish tool.
+
+        Derived from the finish tool's OpenAI parameter schema.  Used by
+        ``execute_task`` to validate the LLM's ``finish_task`` call before
+        accepting it as the final payload.  If the call is missing any of
+        these fields, the error is returned to the LLM as a tool result so
+        it can retry with complete arguments.
+        """
+        ...
+
     def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]: ...
 
 

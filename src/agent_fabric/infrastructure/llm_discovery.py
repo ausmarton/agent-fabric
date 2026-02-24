@@ -8,6 +8,7 @@ Ollama (default), vLLM, etc.—and pick a model that matches config or the best 
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 import time
@@ -17,6 +18,9 @@ from urllib.parse import urlparse
 import httpx
 
 from agent_fabric.config import FabricConfig, ModelConfig
+from agent_fabric.config.constants import LLM_DISCOVERY_TIMEOUT_S, LLM_PULL_TIMEOUT_S
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -36,7 +40,7 @@ def _ollama_root(base_url: str) -> str:
     return f"{u.scheme}://{u.netloc}{path}".rstrip("/") or base_url
 
 
-def discover_ollama_models(base_url: str, timeout_s: float = 10.0) -> list[dict] | None:
+def discover_ollama_models(base_url: str, timeout_s: float = LLM_DISCOVERY_TIMEOUT_S) -> list[dict] | None:
     """
     Query Ollama for available models (GET /api/tags). Returns list of model dicts
     (name, details.parameter_size, etc.) or None if not Ollama / unreachable.
@@ -53,7 +57,7 @@ def discover_ollama_models(base_url: str, timeout_s: float = 10.0) -> list[dict]
         return None
 
 
-def discover_openai_models(base_url: str, timeout_s: float = 10.0) -> list[str] | None:
+def discover_openai_models(base_url: str, timeout_s: float = LLM_DISCOVERY_TIMEOUT_S) -> list[str] | None:
     """
     Query an OpenAI-compatible /v1/models endpoint (e.g. vLLM). Returns list of model ids or None.
     """
@@ -221,6 +225,13 @@ def resolve_llm(
         names = [m for m in (_ollama_model_name(m) for m in models) if m]
         selected = select_model(model_cfg.model, models, is_ollama=True)
         if selected:
+            if selected != model_cfg.model:
+                logger.warning(
+                    "Preferred model %r not available; using fallback: %s (available: %s)",
+                    model_cfg.model, selected, names[:5],
+                )
+            else:
+                logger.info("Resolved model: %s at %s", selected, model_cfg.base_url)
             resolved_config = ModelConfig(
                 base_url=model_cfg.base_url,
                 model=selected,
@@ -234,7 +245,8 @@ def resolve_llm(
         # No models: optional auto-pull
         if config.auto_pull_if_missing:
             pull_model = config.auto_pull_model
-            if _ollama_pull(pull_model, ollama_root, timeout_s=600):
+            logger.info("No models at %s; auto-pulling %s", model_cfg.base_url, pull_model)
+            if _ollama_pull(pull_model, ollama_root, timeout_s=LLM_PULL_TIMEOUT_S):
                 time.sleep(1.0)  # allow Ollama to register the new model
                 models2 = discover_ollama_models(model_cfg.base_url, timeout_s=15.0)
                 if models2:
@@ -256,10 +268,12 @@ def resolve_llm(
         )
 
     # Not Ollama or unreachable: try OpenAI-compat (e.g. vLLM) at same base_url
-    openai_models = discover_openai_models(model_cfg.base_url, timeout_s=10.0)
+    logger.info("Ollama not reachable at %s; trying OpenAI-compat endpoint", model_cfg.base_url)
+    openai_models = discover_openai_models(model_cfg.base_url, timeout_s=LLM_DISCOVERY_TIMEOUT_S)
     if openai_models:
         selected = select_model(model_cfg.model, openai_models, is_ollama=False)
         if selected:
+            logger.info("Resolved model (OpenAI-compat): %s at %s", selected, model_cfg.base_url)
             resolved_config = ModelConfig(
                 base_url=model_cfg.base_url,
                 model=selected,

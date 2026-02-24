@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -12,7 +15,7 @@ from pydantic import BaseModel
 
 from agent_fabric.application.execute_task import execute_task
 from agent_fabric.config import load_config
-from agent_fabric.domain import Task
+from agent_fabric.domain import Task, build_task
 from agent_fabric.infrastructure.llm_discovery import resolve_llm
 from agent_fabric.infrastructure.ollama import OllamaChatClient
 from agent_fabric.infrastructure.workspace import FileSystemRunRepository
@@ -39,6 +42,10 @@ def health():
 
 @app.post("/run")
 async def run(req: RunRequest):
+    logger.info(
+        "POST /run prompt=%r pack=%s model=%s network=%s",
+        req.prompt[:80], req.pack, req.model_key, req.network_allowed,
+    )
     config = load_config()
 
     # resolve_llm performs blocking I/O (HTTP probes, optional subprocess) so we
@@ -56,12 +63,7 @@ async def run(req: RunRequest):
     run_repository = FileSystemRunRepository(workspace_root=_workspace_root())
     specialist_registry = ConfigSpecialistRegistry(config)
 
-    task = Task(
-        prompt=req.prompt,
-        specialist_id=req.pack.strip() if req.pack else None,
-        model_key=req.model_key,
-        network_allowed=req.network_allowed,
-    )
+    task = build_task(req.prompt, req.pack, req.model_key, req.network_allowed)
     try:
         result = await execute_task(
             task,
@@ -91,6 +93,10 @@ async def run(req: RunRequest):
             detail=f"LLM server error ({resolved.base_url}): {e.response.status_code}.",
         )
 
+    logger.info(
+        "POST /run completed run_id=%s pack=%s model=%s",
+        result.run_id.value, result.specialist_id, result.model_name,
+    )
     out = dict(result.payload)
     out["_meta"] = {
         "pack": result.specialist_id,

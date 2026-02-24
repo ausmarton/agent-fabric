@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ModelConfig(BaseModel):
@@ -23,12 +23,40 @@ class SpecialistConfig(BaseModel):
     description: str
     keywords: List[str] = Field(default_factory=list)
     workflow: str  # Reserved for future; today we use specialist_id to load pack
+    builder: Optional[str] = Field(
+        None,
+        description=(
+            "Dotted import path to the pack factory function, "
+            "e.g. 'mypackage.packs.custom:build_custom_pack'. "
+            "Signature: (workspace_path: str, network_allowed: bool) -> SpecialistPack. "
+            "When omitted the built-in pack for this specialist id is used."
+        ),
+    )
 
 
 class FabricConfig(BaseModel):
     """Root config: models and specialists."""
     models: Dict[str, ModelConfig]
     specialists: Dict[str, SpecialistConfig]
+
+    @model_validator(mode="after")
+    def _specialists_not_empty(self) -> "FabricConfig":
+        """Validate that at least one specialist is defined.
+
+        An empty specialists dict means every recruit_specialist() call fails
+        at execution time with an opaque KeyError.  Catching this at config
+        load time gives a clear, early error message.
+
+        As new fields that reference specialist IDs are added to FabricConfig
+        (e.g. a future ``default_specialist`` or routing rules), add those
+        cross-reference checks here.
+        """
+        if not self.specialists:
+            raise ValueError(
+                "specialists must not be empty: at least one specialist must be defined. "
+                "Add an 'engineering' or 'research' entry (or a custom pack) to your config."
+            )
+        return self
     require_human_approval_for: List[str] = Field(
         default_factory=lambda: ["deploy", "push", "write_external"]
     )

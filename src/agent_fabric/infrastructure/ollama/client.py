@@ -12,11 +12,15 @@ parsed for ``tool_calls`` and returned as ``LLMResponse`` with structured
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from agent_fabric.domain import LLMResponse, ToolCallRequest
+from agent_fabric.config.constants import LLM_CHAT_DEFAULT_TIMEOUT_S
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaChatClient:
@@ -28,7 +32,7 @@ class OllamaChatClient:
     top-level parameters.
     """
 
-    def __init__(self, base_url: str, api_key: str = "", timeout_s: float = 120.0):
+    def __init__(self, base_url: str, api_key: str = "", timeout_s: float = LLM_CHAT_DEFAULT_TIMEOUT_S):
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout_s
@@ -59,6 +63,10 @@ class OllamaChatClient:
         if tools:
             payload["tools"] = tools
 
+        logger.debug(
+            "POST %s model=%s messages=%d tools=%d",
+            url, model, len(messages), len(tools or []),
+        )
         timeout = httpx.Timeout(self._timeout)
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(url, headers=headers, json=payload)
@@ -74,6 +82,10 @@ class OllamaChatClient:
                 # Some backends 400 on unknown top-level params (temperature,
                 # top_p, …); retry with a minimal payload that still includes
                 # tools (required for tool calling).
+                logger.warning(
+                    "400 from %s (model=%s): %s — retrying with minimal payload",
+                    url, model, err_msg[:200],
+                )
                 payload_minimal: Dict[str, Any] = {
                     "model": model,
                     "messages": messages,

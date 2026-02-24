@@ -16,12 +16,14 @@ from agent_fabric.infrastructure.llm_discovery import (
 from agent_fabric.config.schema import DEFAULT_CONFIG
 
 
-def test_ollama_embedding_model_excluded():
-    """Embedding-only models (e.g. bge-m3) are excluded from chat selection."""
-    assert _is_ollama_chat_capable({"name": "bge-m3:latest", "model": "bge-m3:latest", "details": {"family": "bge-m3"}}) is False
-    assert _is_ollama_chat_capable({"name": "nomic-embed-text", "details": {"family": "nomic-embed-text"}}) is False
-    assert _is_ollama_chat_capable({"name": "qwen2.5:7b", "details": {"family": "qwen2.5"}}) is True
-    assert _is_ollama_chat_capable({"name": "llama3.1:8b", "details": {"family": "llama"}}) is True
+@pytest.mark.parametrize("model,expected", [
+    ({"name": "bge-m3:latest", "model": "bge-m3:latest", "details": {"family": "bge-m3"}}, False),
+    ({"name": "nomic-embed-text", "details": {"family": "nomic-embed-text"}}, False),
+    ({"name": "qwen2.5:7b", "details": {"family": "qwen2.5"}}, True),
+    ({"name": "llama3.1:8b", "details": {"family": "llama"}}, True),
+])
+def test_is_ollama_chat_capable(model, expected):
+    assert _is_ollama_chat_capable(model) is expected
 
 
 def test_select_model_prefers_chat_models():

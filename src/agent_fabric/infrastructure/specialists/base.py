@@ -61,6 +61,15 @@ class BaseSpecialistPack:
     def finish_tool_name(self) -> str:
         return self.FINISH_TOOL_NAME
 
+    @property
+    def finish_required_fields(self) -> List[str]:
+        """Required argument field names derived from the finish tool's parameter schema."""
+        return list(
+            self._finish_tool_def.get("function", {})
+            .get("parameters", {})
+            .get("required", [])
+        )
+
     def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a regular (non-finish) tool by name.
 

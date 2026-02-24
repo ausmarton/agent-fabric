@@ -48,3 +48,20 @@ def skip_if_no_real_llm():
 
 # Optional: env to force skipping real-LLM tests even when server is up (e.g. slow CI)
 SKIP_REAL_LLM = os.environ.get("FABRIC_SKIP_REAL_LLM", "").lower() in ("1", "true", "yes")
+
+
+@pytest.fixture(autouse=True)
+def _reset_config_cache():
+    """Clear the load_config LRU cache and reset _env before (and after) every test.
+
+    This ensures each test gets a fresh config load, so monkeypatching
+    FABRIC_CONFIG_PATH or _env works correctly without tests bleeding into each other.
+    Existing tests that call ``monkeypatch.setattr(config_loader, "_env", None)``
+    continue to work unchanged (those resets are now redundant but harmless).
+    """
+    from agent_fabric.config import loader as config_loader
+    config_loader.load_config.cache_clear()
+    config_loader._env = None
+    yield
+    config_loader.load_config.cache_clear()
+    config_loader._env = None

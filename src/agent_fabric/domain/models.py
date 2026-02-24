@@ -22,6 +22,31 @@ class Task:
     network_allowed: bool = True
 
 
+def build_task(
+    prompt: str,
+    pack: Optional[str],
+    model_key: str,
+    network_allowed: bool,
+) -> "Task":
+    """Construct a Task from external input, normalising the pack string.
+
+    ``pack`` may be ``None``, an empty string, or whitespace-only — all are
+    treated as "no specialist requested" (auto-routing).  A non-empty value
+    is stripped of surrounding whitespace before being stored as
+    ``specialist_id``.
+
+    Both the CLI (where Typer supplies ``""`` as default) and the HTTP API
+    (where the field is ``Optional[str]``) use this helper so the
+    normalisation logic lives in exactly one place.
+    """
+    return Task(
+        prompt=prompt,
+        specialist_id=(pack or "").strip() or None,
+        model_key=model_key,
+        network_allowed=network_allowed,
+    )
+
+
 @dataclass
 class ToolCallRequest:
     """A single tool call requested by the LLM in a response."""

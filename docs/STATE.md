@@ -2,7 +2,7 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-24. **Full validation** (real LLM, all 45 fast + 4 real-LLM tests) is required to prove the system works; see Phase 1 verification gate below.
+**Last updated:** 2026-02-24. Fast CI: **105 pass** (T1 + T2 tiers complete; T3 tier complete).
 
 ---
 
@@ -96,8 +96,14 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 
 ## Next steps (what to do when resuming)
 
-1. **If Phase 1 verification gate is not fully checked:** Run the four verification steps above; fix any failure; update this file (e.g. add “Last verified: …”).
-2. **Start Phase 2:** Open [PLAN.md](PLAN.md) § Phase 2. Implement 2.1 → 2.5; add a Phase 2 checklist to this file. Run `pytest tests/ -v` after each change; before marking Phase 2 complete, run the Phase 2 verification gate.
+**The backlog is the canonical source for what to work on next.**
+
+1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
+2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 45 pass before touching code.
+3. Start the first non-done item (T3 tier complete → next: **Phase 2** per BACKLOG.md).
+4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
+
+**Do not start Phase 2 (P2-1 through P2-5 in BACKLOG.md) until all T1 items are done.**
 
 ---
 
@@ -143,9 +149,12 @@ The tool loop was completely reworked from a fragile JSON-in-content protocol to
 
 | Read first | Then | For |
 |------------|------|-----|
-| **STATE.md** (this file) | PLAN.md (current phase) | Resuming work; what’s done, what’s next |
-| PLAN.md | REQUIREMENTS.md, VISION.md | Full context; verification criteria |
-| REQUIREMENTS.md | — | MVP behaviour and validation |
-| VISION.md | — | Long-term vision and alignment |
+| **STATE.md** (this file) | BACKLOG.md | Resuming work; current phase and what’s next |
+| **BACKLOG.md** | — | Prioritised work items with full context; single source of truth for "what to do next" |
+| **DECISIONS.md** | — | Architectural decisions and rationale; read before changing significant design |
+| PLAN.md | REQUIREMENTS.md, VISION.md | Phase deliverables, verification gates, full context |
+| REQUIREMENTS.md | — | MVP functional requirements and validation |
+| VISION.md | — | Long-term vision, principles, use-case pillars |
 
-When you complete a deliverable or run verification, **update this file** (STATE.md) so the next session knows the current state.
+**Workflow:** When you complete an item, tick it off in BACKLOG.md and move it to the Done table.
+Update STATE.md with the new date. Run the fast CI check before and after every change.

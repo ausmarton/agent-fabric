@@ -1,7 +1,14 @@
-"""Load config from FABRIC_CONFIG_PATH or return default."""
+"""Load config from FABRIC_CONFIG_PATH or return default.
+
+``load_config()`` is memoised with ``functools.lru_cache`` so the file is read
+and parsed at most once per process.  Call ``load_config.cache_clear()`` to
+force a re-read (useful in tests and when ``FABRIC_CONFIG_PATH`` changes at
+runtime).
+"""
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 from typing import Optional
@@ -26,8 +33,13 @@ def _get_env() -> _Env:
     return _env
 
 
+@functools.lru_cache(maxsize=1)
 def load_config() -> FabricConfig:
-    """Load config from FABRIC_CONFIG_PATH if set and valid; else return DEFAULT_CONFIG."""
+    """Load config from FABRIC_CONFIG_PATH if set and valid; else return DEFAULT_CONFIG.
+
+    Result is cached for the lifetime of the process.  Call
+    ``load_config.cache_clear()`` to force a reload.
+    """
     path = _get_env().config_path
     if not path or not path.strip():
         return DEFAULT_CONFIG

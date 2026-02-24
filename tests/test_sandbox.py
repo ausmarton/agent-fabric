@@ -17,13 +17,12 @@ def test_safe_path_within_root():
         assert p == root / "a" / "file.txt"
 
 
-def test_safe_path_escape_fails():
-    with tempfile.TemporaryDirectory() as d:
-        root = Path(d)
-        policy = SandboxPolicy(root=root)
-        with pytest.raises(PermissionError):
-            safe_path(policy, "../etc/passwd")
-        with pytest.raises(PermissionError):
-            safe_path(policy, "..")
-        with pytest.raises(PermissionError):
-            safe_path(policy, "a/../../etc/passwd")
+@pytest.mark.parametrize("escape_path", [
+    "../etc/passwd",
+    "..",
+    "a/../../etc/passwd",
+])
+def test_safe_path_escape_fails(tmp_path, escape_path):
+    policy = SandboxPolicy(root=tmp_path)
+    with pytest.raises(PermissionError):
+        safe_path(policy, escape_path)

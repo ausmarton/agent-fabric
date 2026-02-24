@@ -6,8 +6,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from agent_fabric.config import DEFAULT_CONFIG, FabricConfig, get_config
+from pydantic import ValidationError
+
+from agent_fabric.config import DEFAULT_CONFIG, FabricConfig, get_config, load_config
 from agent_fabric.config import loader as config_loader
+from agent_fabric.config.schema import ModelConfig, SpecialistConfig
 
 
 def test_get_config_default(monkeypatch):
@@ -70,6 +73,77 @@ def test_config_local_llm_from_file(monkeypatch):
         assert cfg.local_llm_start_timeout_s == 120
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+def test_load_config_is_cached(monkeypatch):
+    """Repeated calls to load_config() return the same object (cache hit)."""
+    monkeypatch.delenv("FABRIC_CONFIG_PATH", raising=False)
+    first = load_config()
+    second = load_config()
+    assert first is second, "load_config() must return the cached object on repeat calls"
+
+
+def test_load_config_cache_clear_forces_reload(monkeypatch, tmp_path):
+    """cache_clear() forces the next call to re-read from disk."""
+    cfg_file = tmp_path / "cfg.json"
+    cfg_file.write_text(json.dumps({
+        "models": {"q": {"base_url": "http://localhost:11434/v1", "model": "m1"}},
+        "specialists": DEFAULT_CONFIG.model_dump()["specialists"],
+    }))
+
+    monkeypatch.setenv("FABRIC_CONFIG_PATH", str(cfg_file))
+    monkeypatch.setattr(config_loader, "_env", None)
+    first = load_config()
+    assert first.models["q"].model == "m1"
+
+    # Overwrite config file with a different model name.
+    cfg_file.write_text(json.dumps({
+        "models": {"q": {"base_url": "http://localhost:11434/v1", "model": "m2"}},
+        "specialists": DEFAULT_CONFIG.model_dump()["specialists"],
+    }))
+
+    # Without cache_clear, still the old cached result.
+    assert load_config().models["q"].model == "m1"
+
+    # After cache_clear, fresh read picks up the new file.
+    load_config.cache_clear()
+    monkeypatch.setattr(config_loader, "_env", None)
+    second = load_config()
+    assert second.models["q"].model == "m2"
+    assert first is not second
+
+
+def _minimal_model() -> ModelConfig:
+    return ModelConfig(base_url="http://localhost:11434/v1", model="test-model")
+
+
+def test_default_config_is_valid():
+    """DEFAULT_CONFIG must pass all FabricConfig validators."""
+    # Constructing DEFAULT_CONFIG at import time already validates it; this
+    # test makes the expectation explicit and will catch regressions.
+    assert "engineering" in DEFAULT_CONFIG.specialists
+    assert "research" in DEFAULT_CONFIG.specialists
+
+
+def test_empty_specialists_raises_validation_error():
+    """A config with no specialists is rejected at construction time."""
+    with pytest.raises(ValidationError, match="specialists must not be empty"):
+        FabricConfig(models={"q": _minimal_model()}, specialists={})
+
+
+def test_single_specialist_is_valid():
+    """A config with exactly one specialist passes validation."""
+    cfg = FabricConfig(
+        models={"q": _minimal_model()},
+        specialists={
+            "engineering": SpecialistConfig(
+                description="builds things",
+                keywords=["build"],
+                workflow="engineering",
+            )
+        },
+    )
+    assert list(cfg.specialists) == ["engineering"]
 
 
 def test_config_legacy_auto_start_llm_keys(monkeypatch):

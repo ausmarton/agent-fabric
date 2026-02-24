@@ -17,15 +17,6 @@ def test_engineering_pack_has_tools():
         assert "list_files" in pack.tool_names
 
 
-def test_engineering_pack_finish_tool_in_definitions():
-    """finish_task must appear in tool_definitions so the LLM knows to call it."""
-    with tempfile.TemporaryDirectory() as d:
-        pack = build_engineering_pack(d, network_allowed=False)
-        names = [t["function"]["name"] for t in pack.tool_definitions]
-        assert "finish_task" in names
-        assert pack.finish_tool_name == "finish_task"
-
-
 def test_research_pack_network_allowed_has_web_tools():
     with tempfile.TemporaryDirectory() as d:
         pack = build_research_pack(d, network_allowed=True)
@@ -44,19 +35,27 @@ def test_research_pack_no_network_omits_web_tools():
         assert "list_files" in pack.tool_names
 
 
-def test_research_pack_finish_tool_in_definitions():
-    """finish_task present regardless of network_allowed."""
+@pytest.mark.parametrize("builder,network_allowed", [
+    (build_engineering_pack, False),
+    (build_research_pack, False),
+])
+def test_finish_tool_in_definitions(builder, network_allowed):
+    """finish_task must appear in tool_definitions so the LLM knows to call it."""
     with tempfile.TemporaryDirectory() as d:
-        pack = build_research_pack(d, network_allowed=False)
+        pack = builder(d, network_allowed=network_allowed)
         names = [t["function"]["name"] for t in pack.tool_definitions]
         assert "finish_task" in names
         assert pack.finish_tool_name == "finish_task"
 
 
-def test_tool_definitions_are_valid_openai_format():
+@pytest.mark.parametrize("builder,network_allowed", [
+    (build_engineering_pack, False),
+    (build_research_pack, True),
+])
+def test_tool_definitions_are_valid_openai_format(builder, network_allowed):
     """Every tool definition must have type=function and a function.name."""
     with tempfile.TemporaryDirectory() as d:
-        pack = build_engineering_pack(d, network_allowed=False)
+        pack = builder(d, network_allowed=network_allowed)
         for td in pack.tool_definitions:
             assert td.get("type") == "function"
             assert "function" in td
