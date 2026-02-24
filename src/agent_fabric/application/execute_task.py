@@ -19,6 +19,7 @@ from agent_fabric.config.constants import MAX_LLM_CONTENT_IN_RUNLOG_CHARS
 from agent_fabric.domain import RecruitError, RunId, RunResult, Task
 from agent_fabric.application.ports import ChatClient, RunRepository, SpecialistRegistry
 from agent_fabric.application.recruit import recruit_specialist, RecruitmentResult
+from agent_fabric.infrastructure.telemetry import get_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -107,58 +108,67 @@ async def execute_task(
     # Each specialist gets a fresh message context.  Subsequent specialists receive
     # the previous pack's finish payload as additional context so they can build on
     # what was already done.
+    tracer = get_tracer()
     prev_finish_payload: Optional[Dict[str, Any]] = None
     final_payload: Dict[str, Any] = {}
 
-    for pack_idx, specialist_id in enumerate(specialist_ids):
-        pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
+    with tracer.start_as_current_span("fabric.execute_task") as root_span:
+        root_span.set_attribute("run_id", run_id.value)
+        root_span.set_attribute("specialist_ids", ",".join(specialist_ids))
+        root_span.set_attribute("is_task_force", is_task_force)
+        root_span.set_attribute("routing_method", routing_method)
 
-        if is_task_force:
-            run_repository.append_event(
-                run_id,
-                "pack_start",
-                {"specialist_id": specialist_id, "pack_index": pack_idx},
-                step=None,
+        for pack_idx, specialist_id in enumerate(specialist_ids):
+            pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
+
+            if is_task_force:
+                run_repository.append_event(
+                    run_id,
+                    "pack_start",
+                    {"specialist_id": specialist_id, "pack_index": pack_idx},
+                    step=None,
+                )
+                logger.info(
+                    "Task force: starting pack %d/%d specialist=%s run_id=%s",
+                    pack_idx + 1, len(specialist_ids), specialist_id, run_id.value,
+                )
+
+            # Build initial messages for this pack.
+            if prev_finish_payload is None:
+                user_content = f"Task:\n{task.prompt}"
+            else:
+                prev_specialist_id = specialist_ids[pack_idx - 1]
+                context_block = json.dumps(prev_finish_payload, indent=2, ensure_ascii=False)
+                user_content = (
+                    f"Task:\n{task.prompt}\n\n"
+                    f"Context from '{prev_specialist_id}' specialist "
+                    f"(prior task-force member):\n{context_block}"
+                )
+
+            messages: List[Dict[str, Any]] = [
+                {"role": "system", "content": pack.system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+
+            # Use pack-prefixed step names for task forces so the runlog clearly
+            # shows which pack each step belongs to.
+            step_prefix = f"{specialist_id}_" if is_task_force else ""
+
+            pack_payload = await _execute_pack_loop(
+                pack=pack,
+                messages=messages,
+                model_cfg=model_cfg,
+                chat_client=chat_client,
+                run_repository=run_repository,
+                run_id=run_id,
+                step_prefix=step_prefix,
+                max_steps=max_steps,
+                tracer=tracer,
+                specialist_id=specialist_id,
             )
-            logger.info(
-                "Task force: starting pack %d/%d specialist=%s run_id=%s",
-                pack_idx + 1, len(specialist_ids), specialist_id, run_id.value,
-            )
 
-        # Build initial messages for this pack.
-        if prev_finish_payload is None:
-            user_content = f"Task:\n{task.prompt}"
-        else:
-            prev_specialist_id = specialist_ids[pack_idx - 1]
-            context_block = json.dumps(prev_finish_payload, indent=2, ensure_ascii=False)
-            user_content = (
-                f"Task:\n{task.prompt}\n\n"
-                f"Context from '{prev_specialist_id}' specialist "
-                f"(prior task-force member):\n{context_block}"
-            )
-
-        messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": pack.system_prompt},
-            {"role": "user", "content": user_content},
-        ]
-
-        # Use pack-prefixed step names for task forces so the runlog clearly
-        # shows which pack each step belongs to.
-        step_prefix = f"{specialist_id}_" if is_task_force else ""
-
-        pack_payload = await _execute_pack_loop(
-            pack=pack,
-            messages=messages,
-            model_cfg=model_cfg,
-            chat_client=chat_client,
-            run_repository=run_repository,
-            run_id=run_id,
-            step_prefix=step_prefix,
-            max_steps=max_steps,
-        )
-
-        prev_finish_payload = pack_payload
-        final_payload = pack_payload
+            prev_finish_payload = pack_payload
+            final_payload = pack_payload
 
     logger.info(
         "Task completed: run_id=%s specialists=%s is_task_force=%s",
@@ -191,6 +201,8 @@ async def _execute_pack_loop(
     run_id: RunId,
     step_prefix: str = "",
     max_steps: int = 40,
+    tracer: Any = None,
+    specialist_id: str = "",
 ) -> Dict[str, Any]:
     """Run one specialist pack's tool loop until ``finish_task`` or ``max_steps``.
 
@@ -198,6 +210,10 @@ async def _execute_pack_loop(
 
     Returns the final payload dict (always has ``action: "final"``).
     """
+    from agent_fabric.infrastructure.telemetry import _NOOP_TRACER
+    if tracer is None:
+        tracer = _NOOP_TRACER
+
     payload: Dict[str, Any] = {}
 
     for step in range(max_steps):
@@ -210,14 +226,20 @@ async def _execute_pack_loop(
             step=step_key,
         )
 
-        response = await chat_client.chat(
-            messages=messages,
-            model=model_cfg.model,
-            tools=pack.tool_definitions,
-            temperature=model_cfg.temperature,
-            top_p=model_cfg.top_p,
-            max_tokens=model_cfg.max_tokens,
-        )
+        with tracer.start_as_current_span("fabric.llm_call") as llm_span:
+            llm_span.set_attribute("step", step)
+            llm_span.set_attribute("specialist_id", specialist_id)
+            llm_span.set_attribute("model", model_cfg.model)
+            llm_span.set_attribute("message_count", len(messages))
+            response = await chat_client.chat(
+                messages=messages,
+                model=model_cfg.model,
+                tools=pack.tool_definitions,
+                temperature=model_cfg.temperature,
+                top_p=model_cfg.top_p,
+                max_tokens=model_cfg.max_tokens,
+            )
+            llm_span.set_attribute("tool_calls_returned", len(response.tool_calls))
 
         run_repository.append_event(
             run_id,
@@ -305,30 +327,33 @@ async def _execute_pack_loop(
 
             error_type: Optional[str] = None
             error_message: str = ""
-            try:
-                result = pack.execute_tool(tc.tool_name, tc.arguments)
-            except PermissionError as exc:
-                # Sandbox violation: path escape or disallowed command.
-                result = {"error": "permission_denied", "message": str(exc)}
-                error_type, error_message = "permission", str(exc)
-            except (ValueError, TypeError) as exc:
-                # Bad arguments supplied by the LLM to the tool.
-                result = {"error": "invalid_arguments", "message": str(exc)}
-                error_type, error_message = "invalid_args", str(exc)
-            except OSError as exc:
-                # Filesystem or subprocess I/O error.
-                result = {"error": "io_error", "message": str(exc)}
-                error_type, error_message = "io_error", str(exc)
-            except Exception as exc:  # noqa: BLE001
-                # Unexpected error — catch-all so one bad tool never kills the run.
-                # KeyboardInterrupt / SystemExit are BaseException, not Exception,
-                # so they propagate normally.
-                result = {
-                    "error": "unexpected_error",
-                    "message": str(exc),
-                    "error_type": type(exc).__name__,
-                }
-                error_type, error_message = "unexpected", str(exc)
+            with tracer.start_as_current_span("fabric.tool_call") as tool_span:
+                tool_span.set_attribute("tool_name", tc.tool_name)
+                tool_span.set_attribute("specialist_id", specialist_id)
+                try:
+                    result = pack.execute_tool(tc.tool_name, tc.arguments)
+                except PermissionError as exc:
+                    # Sandbox violation: path escape or disallowed command.
+                    result = {"error": "permission_denied", "message": str(exc)}
+                    error_type, error_message = "permission", str(exc)
+                except (ValueError, TypeError) as exc:
+                    # Bad arguments supplied by the LLM to the tool.
+                    result = {"error": "invalid_arguments", "message": str(exc)}
+                    error_type, error_message = "invalid_args", str(exc)
+                except OSError as exc:
+                    # Filesystem or subprocess I/O error.
+                    result = {"error": "io_error", "message": str(exc)}
+                    error_type, error_message = "io_error", str(exc)
+                except Exception as exc:  # noqa: BLE001
+                    # Unexpected error — catch-all so one bad tool never kills the run.
+                    # KeyboardInterrupt / SystemExit are BaseException, not Exception,
+                    # so they propagate normally.
+                    result = {
+                        "error": "unexpected_error",
+                        "message": str(exc),
+                        "error_type": type(exc).__name__,
+                    }
+                    error_type, error_message = "unexpected", str(exc)
 
             if error_type is not None:
                 logger.warning(

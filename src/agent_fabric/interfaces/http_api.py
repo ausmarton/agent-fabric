@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -16,12 +17,21 @@ from pydantic import BaseModel
 from agent_fabric.application.execute_task import execute_task
 from agent_fabric.config import load_config
 from agent_fabric.domain import Task, build_task
+from agent_fabric.infrastructure.chat import build_chat_client
 from agent_fabric.infrastructure.llm_discovery import resolve_llm
-from agent_fabric.infrastructure.ollama import OllamaChatClient
+from agent_fabric.infrastructure.telemetry import setup_telemetry
 from agent_fabric.infrastructure.workspace import FileSystemRunRepository
 from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
 
-app = FastAPI(title="agent-fabric", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):  # noqa: ARG001
+    config = load_config()
+    setup_telemetry(config)
+    yield
+
+
+app = FastAPI(title="agent-fabric", version="0.1.0", lifespan=_lifespan)
 
 
 def _workspace_root() -> str:
@@ -55,11 +65,7 @@ async def run(req: RunRequest):
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    chat_client = OllamaChatClient(
-        base_url=resolved.base_url,
-        api_key=resolved.model_config.api_key,
-        timeout_s=resolved.model_config.timeout_s,
-    )
+    chat_client = build_chat_client(resolved.model_config)
     run_repository = FileSystemRunRepository(workspace_root=_workspace_root())
     specialist_registry = ConfigSpecialistRegistry(config)
 

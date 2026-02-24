@@ -429,10 +429,45 @@ PLAN.md Phase 3 deliverables ticked off.
 
 ---
 
+## Phase 4 items (observability and multi-backend LLM) — **complete**
+
+---
+
+### ~~P4-1: Generic/cloud LLM client + `ModelConfig.backend` field~~ **DONE 2026-02-24**
+
+**What:** Added `backend: str = "ollama"` to `ModelConfig`. Created `infrastructure/chat/__init__.py` with `build_chat_client()` factory (dispatches on `backend`). Created `GenericChatClient` in `infrastructure/chat/generic.py` — bare OpenAI-compatible client, no Ollama 400 retry, raises immediately on non-2xx. Extracted shared `parse_chat_response()` into `infrastructure/chat/_parser.py`. Both `OllamaChatClient` and `GenericChatClient` import the shared parser. CLI and HTTP API now use `build_chat_client(resolved.model_config)` instead of hardcoded `OllamaChatClient`.
+
+**Tests:** `tests/test_generic_client.py` — 15 tests.
+
+---
+
+### ~~P4-2: `fabric logs` CLI subcommand~~ **DONE 2026-02-24**
+
+**What:** Added `fabric logs list` (Rich table of runs, sorted most-recent-first, respects `--limit`) and `fabric logs show <run_id>` (pretty-printed JSON events, optional `--kinds` filter) to `interfaces/cli.py`. Created `infrastructure/workspace/run_reader.py` with `RunSummary` dataclass, `list_runs()`, `read_run_events()`, `_parse_runlog()`, `_summarise_run()`. Silently skips malformed runlog lines.
+
+**Tests:** `tests/test_logs_cli.py` — 18 tests.
+
+---
+
+### ~~P4-3: OpenTelemetry tracing (optional dep)~~ **DONE 2026-02-24**
+
+**What:** Created `infrastructure/telemetry.py` with `_NoOpSpan`, `_NoOpTracer`, `setup_telemetry()`, `get_tracer()`, `reset_for_testing()`. Graceful no-op when `opentelemetry-sdk` is not installed. Added `TelemetryConfig` to `config/schema.py` (`enabled`, `service_name`, `exporter`, `otlp_endpoint`; supports `"none"` | `"console"` | `"otlp"`). Added `telemetry: Optional[TelemetryConfig]` to `FabricConfig`. Instrumented `execute_task.py` with `fabric.execute_task` (root span), `fabric.llm_call` (wraps `chat_client.chat()`), and `fabric.tool_call` (wraps `pack.execute_tool()`). Added `[otel]` optional dep to `pyproject.toml`. Wired `setup_telemetry()` into CLI `run` command and HTTP API `lifespan`.
+
+**Tests:** `tests/test_telemetry.py` — 13 tests (no-op shim, OTEL-only span emission with `InMemorySpanExporter`, `TelemetryConfig` schema).
+
+---
+
+### ~~P4-4: Docs update for Phase 4~~ **DONE 2026-02-24**
+
+**What:** Updated BACKLOG.md (this section), STATE.md (phase → Phase 4 complete, CI count → 194), PLAN.md (concrete Phase 4 deliverables + acceptance criteria).
+
+---
+
 ## Done
 
 | Item | Completed | Summary |
 |------|-----------|---------|
+| P4-1 through P4-4: Phase 4 observability + multi-backend LLM | 2026-02-24 | GenericChatClient + build_chat_client() factory + ModelConfig.backend; fabric logs list/show CLI; OpenTelemetry no-op shim + optional real OTEL (console/otlp); TelemetryConfig schema; execute_task spans (execute_task, llm_call, tool_call); setup_telemetry() wired into CLI + HTTP API lifespan; [otel] pyproject.toml extra. Fast CI: 194 pass (+50) |
 | P3-1 through P3-5: Phase 3 multi-pack task force | 2026-02-24 | RecruitmentResult.specialist_ids (greedy selection); _execute_pack_loop(); sequential multi-pack execution with context handoff; pack_start events + prefixed step names; RunResult.specialist_ids + is_task_force; HTTP _meta updated; 17 new tests in test_task_force.py + 2 in test_capabilities.py. Fast CI: 144 pass (+22) |
 | P2-1 through P2-5: Phase 2 capability routing | 2026-02-24 | CAPABILITY_KEYWORDS + capabilities on SpecialistConfig; infer_capabilities(); RecruitmentResult; two-stage routing (caps → keyword fallback); recruitment runlog event; required_capabilities in RunResult + HTTP _meta; docs/CAPABILITIES.md; REQUIREMENTS FR2 + VISION §8 updated. Fast CI: 122 pass (+17) |
 | T3-5: Extract build_task() to domain | 2026-02-24 | build_task() in domain/models.py; (pack or "").strip() or None fixes subtle whitespace-only inconsistency between CLI and HTTP paths; exported from domain/__init__; 6 new tests |

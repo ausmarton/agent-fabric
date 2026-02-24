@@ -11,14 +11,14 @@ parsed for ``tool_calls`` and returned as ``LLMResponse`` with structured
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-from agent_fabric.domain import LLMResponse, ToolCallRequest
 from agent_fabric.config.constants import LLM_CHAT_DEFAULT_TIMEOUT_S
+from agent_fabric.domain import LLMResponse
+from agent_fabric.infrastructure.chat._parser import parse_chat_response
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ class OllamaChatClient:
                 r.raise_for_status()
                 data = r.json()
 
-        return _parse_response(data)
+        return parse_chat_response(data)
 
 
 def _extract_error_message(response: "httpx.Response") -> str:
@@ -126,21 +126,3 @@ def _extract_error_message(response: "httpx.Response") -> str:
     return response.text or ""
 
 
-def _parse_response(data: Dict[str, Any]) -> LLMResponse:
-    """Parse an OpenAI-format chat completions response into an ``LLMResponse``."""
-    message = data["choices"][0]["message"]
-    content: Optional[str] = message.get("content")
-
-    tool_calls: List[ToolCallRequest] = []
-    for i, tc in enumerate(message.get("tool_calls") or []):
-        call_id: str = tc.get("id") or f"call_{i}"
-        fn = tc.get("function") or {}
-        name: str = fn.get("name") or ""
-        raw_args: str = fn.get("arguments") or "{}"
-        try:
-            arguments: Dict[str, Any] = json.loads(raw_args)
-        except json.JSONDecodeError:
-            arguments = {"_raw": raw_args}
-        tool_calls.append(ToolCallRequest(call_id=call_id, tool_name=name, arguments=arguments))
-
-    return LLMResponse(content=content, tool_calls=tool_calls)

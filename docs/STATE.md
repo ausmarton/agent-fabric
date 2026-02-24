@@ -2,13 +2,13 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-24. Fast CI: **144 pass** (T1 + T2 + T3 tiers complete; Phase 2 complete; Phase 3 complete).
+**Last updated:** 2026-02-24. Fast CI: **194 pass** (T1 + T2 + T3 tiers complete; Phases 2, 3, 4 complete).
 
 ---
 
-## Current phase: **Phase 3 complete → Next: Phase 4**
+## Current phase: **Phase 4 complete → Next: Phase 5**
 
-Phase 3 is **complete**. All five deliverables (P3-1 through P3-5) are done. Next: Phase 4 (containerised workers, MCP tool servers, observability) per BACKLOG.md.
+Phase 4 is **complete**. All four deliverables (P4-1 through P4-4) are done. Next: Phase 5 (containerised workers, MCP tool servers, persistent vector store) per BACKLOG.md.
 
 ---
 
@@ -42,7 +42,7 @@ Phase 3 is **complete**. All five deliverables (P3-1 through P3-5) are done. Nex
 - [x] **REQUIREMENTS:** Manual validation items 1–4 in REQUIREMENTS.md hold (CLI help, routing, run structure, API health).
 - [x] **E2E (real LLM):** With a real LLM available, `python scripts/verify_working_real.py` → exits 0; runlog has tool_call and tool_result; workspace has artifacts. Same is asserted by the real-LLM pytest tests when run via `validate_full.py`.
 
-**Fast CI:** `pytest tests/ -k "not real_llm and not verify"` → **144 pass** (4 real-LLM tests deselected). Use for quick feedback on wiring and unit/integration behaviour; it does not replace the need to run real-LLM E2E for integration assurance.
+**Fast CI:** `pytest tests/ -k "not real_llm and not verify"` → **194 pass** (4 real-LLM tests deselected). Use for quick feedback on wiring and unit/integration behaviour; it does not replace the need to run real-LLM E2E for integration assurance.
 
 **Phase 1 complete.** Full validation (2026-02-24): fast CI 45 pass; all 4 real-LLM E2E tests pass against Ollama 0.12.11 with llama3.1:8b (resolve_llm auto-discovers the available model). `verify_working_real.py` exits 0. Next: Phase 2.
 
@@ -105,13 +105,24 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 
 ---
 
+## Phase 4 checklist (from [PLAN.md](PLAN.md)) — **complete**
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 4.1 | Generic/cloud LLM client + `ModelConfig.backend` field | Done | `infrastructure/chat/__init__.py` (build_chat_client factory); `GenericChatClient` in `infrastructure/chat/generic.py`; shared `parse_chat_response()` in `_parser.py`; `backend: str = “ollama”` on `ModelConfig` |
+| 4.2 | `fabric logs` CLI subcommand | Done | `logs list` (Rich table) and `logs show` (pretty-printed JSON with kind filter) in `interfaces/cli.py`; `RunSummary` + `list_runs()` + `read_run_events()` in `infrastructure/workspace/run_reader.py` |
+| 4.3 | OpenTelemetry tracing (optional dep) | Done | `infrastructure/telemetry.py` (`_NoOpSpan`, `_NoOpTracer`, `setup_telemetry()`, `get_tracer()`); graceful no-op when OTEL not installed; `TelemetryConfig` in `config/schema.py`; `fabric.execute_task` / `fabric.llm_call` / `fabric.tool_call` spans in `execute_task.py`; `[otel]` extra in `pyproject.toml` |
+| 4.4 | Docs update | Done | BACKLOG.md Phase 4 section; STATE.md; PLAN.md Phase 4 concrete deliverables |
+
+---
+
 ## Next steps (what to do when resuming)
 
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 144 pass before touching code.
-3. Start the first non-done item (Phase 3 complete → next: **Phase 4** per BACKLOG.md).
+2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 194 pass before touching code.
+3. Start the first non-done item (Phase 4 complete → next: **Phase 5** per BACKLOG.md).
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---

@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "pytest-asyncio>=0.23"]
+otel = ["opentelemetry-api>=1.24", "opentelemetry-sdk>=1.24"]
 
 [project.scripts]
 fabric = "agent_fabric.interfaces.cli:app"

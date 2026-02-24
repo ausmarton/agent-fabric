@@ -127,15 +127,31 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 ---
 
-## Phase 4+: Extensibility and scale (backlog)
+## Phase 4: Observability and multi-backend LLM — **complete**
+
+**Goal:** Add production-grade observability (OpenTelemetry spans), a `fabric logs` CLI for inspecting past runs, and a generic LLM client so cloud/enterprise LLM endpoints work without Ollama quirks. All optional/additive: no breaking changes to existing functionality.
+
+### Deliverables (Phase 4)
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 4.1 | Generic/cloud LLM client + `ModelConfig.backend` | Done | `infrastructure/chat/__init__.py` (`build_chat_client()` factory); `GenericChatClient` (no Ollama 400 retry); shared `parse_chat_response()` in `_parser.py`; `backend: str = "ollama"` on `ModelConfig`; CLI + HTTP API updated; 15 new tests |
+| 4.2 | `fabric logs` CLI subcommand | Done | `logs list` (Rich table, sorted most-recent-first) + `logs show` (pretty JSON with `--kinds` filter); `RunSummary` dataclass + `list_runs()` + `read_run_events()` in `infrastructure/workspace/run_reader.py`; 18 new tests |
+| 4.3 | OpenTelemetry tracing (optional dep) | Done | `infrastructure/telemetry.py` (`_NoOpSpan`, `_NoOpTracer`, `setup_telemetry()`, `get_tracer()`); graceful no-op when OTEL not installed; `TelemetryConfig` in config schema; `fabric.execute_task` / `fabric.llm_call` / `fabric.tool_call` spans; `[otel]` extra in `pyproject.toml`; wired into CLI + HTTP API lifespan; 13 new tests |
+| 4.4 | Docs update | Done | BACKLOG.md Phase 4 section; STATE.md phase + CI count; PLAN.md Phase 4 concrete deliverables |
+
+**Phase 4 acceptance:** All 4 deliverables implemented; fast CI: **194 pass** (+50 vs Phase 3). `ModelConfig.backend = "generic"` routes to `GenericChatClient`; `fabric logs list` shows past runs; OTEL spans emitted when `telemetry.enabled=true`.
+
+---
+
+## Phase 5+: Containerisation and enterprise scale (backlog)
 
 - **Containerised workers (e.g. Podman)** per specialist role, spun up on demand.
 - **MCP tool servers** for Confluence, Jira, GitHub (least-privilege, sandboxed).
 - **Persistent vector store** for enterprise RAG (metadata, staleness).
-- **Observability export** (e.g. OpenTelemetry).
 - **Cloud fallback** when local model cannot meet the bar.
 
-These stay as backlog until Phases 1–2 (and optionally 3) are stable. Update PLAN with concrete deliverables when we start a phase.
+Update PLAN with concrete deliverables when Phase 5 begins.
 
 ---
 

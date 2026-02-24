@@ -16,8 +16,9 @@ from rich.panel import Panel
 from agent_fabric.application.execute_task import execute_task
 from agent_fabric.config import load_config
 from agent_fabric.domain import Task, build_task
+from agent_fabric.infrastructure.chat import build_chat_client
 from agent_fabric.infrastructure.llm_discovery import resolve_llm
-from agent_fabric.infrastructure.ollama import OllamaChatClient
+from agent_fabric.infrastructure.telemetry import setup_telemetry
 from agent_fabric.infrastructure.workspace import FileSystemRunRepository
 from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
 
@@ -43,6 +44,7 @@ def run(
         stream=sys.stderr,
     )
     config = load_config()
+    setup_telemetry(config)
     try:
         resolved = resolve_llm(config, model_key)
     except RuntimeError as e:
@@ -52,11 +54,7 @@ def run(
     rprint(f"[dim]Using model: {resolved.model} at {resolved.base_url}[/dim]")
     rprint("[dim]Running task...[/dim]")
 
-    chat_client = OllamaChatClient(
-        base_url=resolved.base_url,
-        api_key=resolved.model_config.api_key,
-        timeout_s=resolved.model_config.timeout_s,
-    )
+    chat_client = build_chat_client(resolved.model_config)
     run_repository = FileSystemRunRepository(workspace_root=_workspace_root())
     specialist_registry = ConfigSpecialistRegistry(config)
 
@@ -130,3 +128,80 @@ def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
     """Run the HTTP API (FastAPI + uvicorn)."""
     import uvicorn
     uvicorn.run("agent_fabric.interfaces.http_api:app", host=host, port=port, reload=False)
+
+
+# ---------------------------------------------------------------------------
+# fabric logs subcommands
+# ---------------------------------------------------------------------------
+
+logs_app = typer.Typer(help="Inspect past runs.")
+app.add_typer(logs_app, name="logs")
+
+
+@logs_app.command("list")
+def logs_list(
+    workspace: str = typer.Option(
+        ".fabric", "--workspace", "-w", help="Workspace root (default: .fabric)."
+    ),
+    limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of runs to show."),
+) -> None:
+    """List recent runs (most recent first)."""
+    import datetime
+    from agent_fabric.infrastructure.workspace.run_reader import list_runs
+
+    summaries = list_runs(workspace, limit=limit)
+    if not summaries:
+        rprint(f"[dim]No runs found in {workspace}/runs/[/dim]")
+        return
+
+    from rich.table import Table
+    table = Table(title=f"Recent runs ({workspace})", show_header=True, header_style="bold")
+    table.add_column("Run ID", style="cyan", no_wrap=True)
+    table.add_column("Started", style="dim")
+    table.add_column("Specialists", style="green")
+    table.add_column("Events", justify="right")
+    table.add_column("Summary", overflow="fold")
+
+    for s in summaries:
+        started = (
+            datetime.datetime.fromtimestamp(s.first_event_ts).strftime("%Y-%m-%d %H:%M:%S")
+            if s.first_event_ts is not None
+            else "—"
+        )
+        specialists = ", ".join(s.specialist_ids) if s.specialist_ids else (s.specialist_id or "—")
+        summary = (s.payload_summary or "")[:80]
+        table.add_row(s.run_id, started, specialists, str(s.event_count), summary)
+
+    from rich.console import Console
+    Console().print(table)
+
+
+@logs_app.command("show")
+def logs_show(
+    run_id: str = typer.Argument(..., help="Run ID to inspect."),
+    workspace: str = typer.Option(
+        ".fabric", "--workspace", "-w", help="Workspace root (default: .fabric)."
+    ),
+    kinds: str = typer.Option(
+        "", "--kinds", "-k",
+        help="Comma-separated list of event kinds to show (e.g. 'llm_request,tool_call'). Shows all if empty.",
+    ),
+) -> None:
+    """Show the runlog for a specific run (pretty-printed JSON)."""
+    from agent_fabric.infrastructure.workspace.run_reader import read_run_events
+    from rich.syntax import Syntax
+    from rich.console import Console
+
+    try:
+        events = read_run_events(run_id, workspace)
+    except FileNotFoundError as e:
+        rprint(f"[red]{e}[/red]")
+        sys.exit(1)
+
+    filter_kinds = {k.strip() for k in kinds.split(",") if k.strip()} if kinds else None
+    shown = [e for e in events if filter_kinds is None or e.get("kind") in filter_kinds]
+
+    console = Console()
+    rprint(f"[bold]Run:[/bold] {run_id}  [dim]({len(shown)}/{len(events)} events)[/dim]")
+    for ev in shown:
+        console.print(Syntax(json.dumps(ev, indent=2, ensure_ascii=False), "json", theme="monokai"))

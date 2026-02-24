@@ -12,6 +12,15 @@ class ModelConfig(BaseModel):
     base_url: str = Field(..., description="e.g. http://localhost:11434/v1 or http://localhost:8000/v1")
     model: str = Field(..., description="Model name (e.g. qwen2.5:7b for Ollama, or your server's model id)")
     api_key: str = Field("", description="Bearer token; empty for local backends (no header sent), set for cloud.")
+    backend: str = Field(
+        "ollama",
+        description=(
+            "LLM client backend to use. "
+            "'ollama' (default): Ollama-compatible client with 400-retry and tool-support detection. "
+            "'generic': bare OpenAI-compatible client for cloud providers (OpenAI, Anthropic via "
+            "LiteLLM bridge, vLLM, LM Studio, etc.)."
+        ),
+    )
     temperature: float = 0.1
     top_p: float = 0.9
     max_tokens: int = 2048
@@ -42,10 +51,25 @@ class SpecialistConfig(BaseModel):
     )
 
 
+class TelemetryConfig(BaseModel):
+    """Optional OpenTelemetry tracing configuration."""
+    enabled: bool = False
+    service_name: str = "agent-fabric"
+    exporter: str = Field(
+        "none",
+        description="Span exporter: 'none' (default), 'console' (stdout), or 'otlp' (gRPC endpoint).",
+    )
+    otlp_endpoint: str = Field(
+        "",
+        description="OTLP gRPC endpoint, e.g. 'http://localhost:4317'. Required when exporter='otlp'.",
+    )
+
+
 class FabricConfig(BaseModel):
     """Root config: models and specialists."""
     models: Dict[str, ModelConfig]
     specialists: Dict[str, SpecialistConfig]
+    telemetry: Optional[TelemetryConfig] = None
 
     @model_validator(mode="after")
     def _specialists_not_empty(self) -> "FabricConfig":
