@@ -27,7 +27,53 @@ A **quality-first agent orchestration framework** for local LLM inference.
 
 ---
 
-## Quick start (Fedora)
+## Installation
+
+### From PyPI (recommended)
+
+```bash
+pip install agent-fabric
+```
+
+Install optional extras:
+
+```bash
+pip install "agent-fabric[otel]"   # OpenTelemetry tracing
+pip install "agent-fabric[mcp]"    # MCP tool server support
+```
+
+### Docker (batteries-included: Ollama + agent-fabric)
+
+```bash
+# Clone the repo for the config and docker-compose file
+git clone https://github.com/ausmarton/agent-fabric.git
+cd agent-fabric
+
+# Start Ollama + agent-fabric (pulls qwen2.5:7b on first run)
+docker compose up -d
+
+# Run a task
+curl -X POST http://localhost:8080/run \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Create a file hello.txt with content Hello World", "pack": "engineering"}'
+```
+
+The `docker-compose.yml` includes an Ollama service with a health check, an agent-fabric service, and a one-shot `model-pull` service that exits after pulling `qwen2.5:7b`.
+
+To use a different model, edit `examples/ollama.json` and re-mount it via `FABRIC_CONFIG_PATH`.
+
+### From source
+
+```bash
+git clone https://github.com/ausmarton/agent-fabric.git
+cd agent-fabric
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+---
+
+## Quick start (local Ollama)
 
 ### 1. System dependencies
 
@@ -58,9 +104,9 @@ Any other model works — set `FABRIC_CONFIG_PATH` to point at a config with you
 ### 3. Install agent-fabric
 
 ```bash
-cd /path/to/agent-fabric
-python3 -m venv .venv && source .venv/bin/activate
-pip install -U pip && pip install -e .
+pip install agent-fabric
+# or from source:
+# cd /path/to/agent-fabric && pip install -e .
 ```
 
 ### 4. Run
@@ -191,6 +237,23 @@ Each event is a `data: <json>\n\n` SSE line. Event kinds:
 | `run_complete` | Run finished successfully |
 | `_run_done_` | Terminal sentinel — stream ends |
 | `_run_error_` | Terminal sentinel — run failed |
+
+### API key authentication
+
+When `FABRIC_API_KEY` is set, every endpoint except `GET /health` requires an `Authorization: Bearer <key>` header:
+
+```bash
+export FABRIC_API_KEY="your-strong-secret"
+fabric serve
+
+# Include the header in every request:
+curl -X POST http://127.0.0.1:8787/run \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-strong-secret" \
+  -d '{"prompt": "hello"}'
+```
+
+Leave `FABRIC_API_KEY` unset (default) to disable authentication — suitable for local use. Uses constant-time comparison (`hmac.compare_digest`) to prevent timing attacks.
 
 ### `GET /runs/{run_id}/status`
 
@@ -396,7 +459,7 @@ fabric logs show <run_id> --kinds tool_call,tool_result
 
 ## Testing
 
-**Fast CI** (no LLM required, ~45 seconds, 368 tests):
+**Fast CI** (no LLM required, ~45 seconds, 370+ tests):
 
 ```bash
 pip install -e ".[dev]"

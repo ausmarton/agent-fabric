@@ -15,6 +15,8 @@ the given task correctly using the available tools.
   check command output, inspect files. If anything fails, diagnose and fix.
 - Use write_file to create or update files; use shell to run commands; use
   read_file to inspect existing files; use list_files to see workspace contents.
+- ALWAYS use RELATIVE paths with write_file and read_file (e.g. "app.py" or
+  "src/main.py"). Never use absolute paths — the workspace root is your "/".
 - Write small, reviewable changes. Prefer adding tests alongside code.
 - For any deploy / push step: call finish_task with a note requesting human
   approval and the command to run. Do NOT execute deployment automatically.

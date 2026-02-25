@@ -1,6 +1,10 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "agent-fabric"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A portable, quality-first agent fabric (router + supervisor + specialist packs) that runs on local OpenAI-compatible LLM endpoints."
 readme = "README.md"
 license = { text = "MIT" }
@@ -38,6 +42,7 @@ dev = [
   "pip-audit>=2.7",
   "build>=1.0",
   "twine>=5.0",
+  "setuptools-scm>=8",
 ]
 otel = ["opentelemetry-api>=1.24", "opentelemetry-sdk>=1.24"]
 mcp = ["mcp>=1.0"]
@@ -49,6 +54,18 @@ fabric = "agent_fabric.interfaces.cli:app"
 Homepage = "https://github.com/ausmarton/agent-fabric"
 Repository = "https://github.com/ausmarton/agent-fabric"
 Issues = "https://github.com/ausmarton/agent-fabric/issues"
+Changelog = "https://github.com/ausmarton/agent-fabric/blob/main/CHANGELOG.md"
+
+[tool.setuptools_scm]
+# Version is derived from the nearest git tag (e.g. v0.1.0 → 0.1.0).
+# Untagged commits produce a dev version: 0.1.1.dev3+gabcdef.
+# Use SETUPTOOLS_SCM_PRETEND_VERSION when building outside a git tree
+# (e.g. in Docker without full history): --build-arg VERSION=0.1.0
+fallback_version = "0.0.0.dev0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["agent_fabric*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -84,7 +101,3 @@ exclude_lines = [
 ]
 show_missing = true
 skip_covered = false
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["agent_fabric*"]

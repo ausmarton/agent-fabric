@@ -58,7 +58,15 @@ def run_cmd(
 
 
 def safe_path(policy: SandboxPolicy, rel_path: str) -> Path:
+    if rel_path.startswith("/"):
+        raise PermissionError(
+            f"Path must be relative (e.g. 'app.py' or 'src/app.py'), "
+            f"not an absolute path. Got: {rel_path!r}"
+        )
     p = (policy.root / rel_path).resolve()
     if policy.root.resolve() not in p.parents and p != policy.root.resolve():
-        raise PermissionError("Path must be within sandbox root")
+        raise PermissionError(
+            f"Path {rel_path!r} resolves outside the workspace sandbox. "
+            "Use a relative path that stays within the workspace."
+        )
     return p

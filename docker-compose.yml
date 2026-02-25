@@ -1,0 +1,71 @@
+# docker-compose.yml — agent-fabric + Ollama, batteries included.
+#
+# Quick start:
+#   docker compose up -d
+#   docker compose exec ollama ollama pull qwen2.5:7b
+#   curl -X POST http://localhost:8080/run \
+#        -H "Content-Type: application/json" \
+#        -d '{"prompt": "Write a Python hello-world script"}'
+#
+# The agent-fabric service uses examples/ollama.json as its config by default.
+# To use a different config, set FABRIC_CONFIG_PATH and mount your file.
+#
+# To enable API key authentication, uncomment FABRIC_API_KEY below and set a
+# strong secret.  Then include Authorization: Bearer <key> in every request.
+
+services:
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  agent-fabric:
+    image: ghcr.io/ausmarton/agent-fabric:latest
+    # To build locally instead:
+    # build:
+    #   context: .
+    #   args:
+    #     VERSION: "0.0.0.dev0"
+    ports:
+      - "8080:8080"
+    environment:
+      # Point at the ollama service defined above.
+      # The examples/ollama.json config uses localhost:11434 — override the
+      # base_url to reach the ollama container via its service name.
+      FABRIC_CONFIG_PATH: /config/fabric.json
+      FABRIC_WORKSPACE: /data/workspace
+      # Uncomment and set a strong secret to enable bearer-token auth:
+      # FABRIC_API_KEY: "change-me-to-a-strong-secret"
+    volumes:
+      - ./examples/ollama.json:/config/fabric.json:ro
+      - workspace:/data/workspace
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Optional: pull a model on first startup ──────────────────────────────
+  # Remove this service once your model is pulled; it exits after pulling.
+  model-pull:
+    image: ollama/ollama:latest
+    entrypoint: ["ollama", "pull", "qwen2.5:7b"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  ollama_models:
+  workspace:

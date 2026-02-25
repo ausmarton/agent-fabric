@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  packages: write   # push Docker image to GHCR
+  id-token: write   # OIDC token for PyPI trusted publishing
 
 jobs:
   build:
@@ -16,6 +18,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # setuptools-scm needs full tag history
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -35,9 +39,65 @@ jobs:
           name: dist
           path: dist/
 
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/agent-fabric
+    steps:
+      - name: Download dist
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Uses OIDC trusted publishing — no API token needed.
+        # One-time setup: on PyPI go to project → Publishing → Add a trusted publisher:
+        #   Owner: ausmarton  |  Repo: agent-fabric  |  Workflow: release.yml  |  Env: pypi
+
+  publish-docker:
+    name: Build and push Docker image
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.build.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, publish-pypi, publish-docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,10 +109,8 @@ jobs:
           name: dist
           path: dist/
       - name: Extract changelog for this version
-        id: changelog
         run: |
           VERSION="${{ needs.build.outputs.version }}"
-          # Extract the section for this version from CHANGELOG.md
           awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md > release_notes.md
           cat release_notes.md
       - name: Create GitHub Release

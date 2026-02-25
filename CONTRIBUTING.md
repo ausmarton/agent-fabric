@@ -48,7 +48,7 @@ The `[dev]` extra installs everything needed for tests and the MCP subsystem. No
 pytest tests/ -k "not real_llm and not real_mcp and not podman" -q
 ```
 
-This runs the full suite of unit and integration tests using mocked LLM clients — no external services needed. **Target: 368 pass.** This is the check to run before and after every change.
+This runs the full suite of unit and integration tests using mocked LLM clients — no external services needed. **Target: 370+ pass.** This is the check to run before and after every change.
 
 ### Test markers
 
@@ -273,3 +273,43 @@ The principles from [docs/VISION.md](docs/VISION.md) are non-negotiable:
    - Decisions: add an ADR to `docs/DECISIONS.md` for significant design choices.
    - Phase tracking: tick off deliverables in `docs/BACKLOG.md`; update `docs/STATE.md`.
 5. **Open a pull request** with a clear description of what changed and why.
+
+---
+
+## Release process
+
+Releases are fully automated via GitHub Actions on version tags. No manual PyPI upload or Docker push is needed.
+
+### Cutting a release
+
+1. **Update `CHANGELOG.md`** — move items from `[Unreleased]` to a new version section, following [Keep a Changelog](https://keepachangelog.com/) format.
+
+2. **Create and push a version tag** — the tag drives the version (`v1.2.3` → `1.2.3`) via `setuptools-scm`:
+
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+3. **The release workflow (`.github/workflows/release.yml`) runs automatically:**
+   - Builds the wheel and sdist
+   - Publishes to PyPI via OIDC trusted publishing (no API token required)
+   - Builds and pushes the Docker image to GHCR (`ghcr.io/ausmarton/agent-fabric:0.2.0` and `:latest`)
+   - Creates a GitHub Release with the dist artifacts attached
+
+### One-time PyPI setup (trusted publishing)
+
+On first release, create the project on PyPI and configure trusted publishing:
+
+1. Go to [pypi.org/manage/account/publishing](https://pypi.org/manage/account/publishing/).
+2. Add a new trusted publisher: owner `ausmarton`, repo `agent-fabric`, workflow `release.yml`, environment `pypi`.
+3. No API token is needed after this point.
+
+### Branch protection (recommended)
+
+Configure the following in **Settings → Branches → Branch protection rules → `main`**:
+
+- ✅ Require a pull request before merging
+- ✅ Require status checks to pass before merging — add: `Lint`, `Test (Python 3.10)`, `Test (Python 3.11)`, `Test (Python 3.12)`, `Build distribution`
+- ✅ Require branches to be up to date before merging
+- ✅ Do not allow bypassing the above settings

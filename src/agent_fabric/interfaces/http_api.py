@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -10,8 +11,8 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent_fabric.application.execute_task import execute_task
@@ -33,7 +34,35 @@ async def _lifespan(app: FastAPI):  # noqa: ARG001
     yield
 
 
-app = FastAPI(title="agent-fabric", version="0.1.0", lifespan=_lifespan)
+app = FastAPI(title="agent-fabric", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _auth_middleware(request: Request, call_next):
+    """Optional bearer-token authentication.
+
+    Active only when the ``FABRIC_API_KEY`` environment variable is set.
+    When active, every endpoint except ``GET /health`` requires an
+    ``Authorization: Bearer <key>`` header.  Uses constant-time comparison
+    to prevent timing attacks.
+    """
+    api_key = os.environ.get("FABRIC_API_KEY", "").strip()
+    if api_key and request.url.path != "/health":
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Unauthorized", "detail": "Authorization: Bearer <key> header required"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        token = auth_header[len("Bearer "):]
+        if not hmac.compare_digest(token.encode(), api_key.encode()):
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Unauthorized", "detail": "Invalid API key"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    return await call_next(request)
 
 
 def _workspace_root() -> str:
