@@ -195,8 +195,25 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 ---
 
+## Phase 8: Streaming, parallelism, and run status — **complete**
+
+**Goal:** Add real-time SSE streaming of run events, parallel task force execution, and a run status endpoint. All additive; existing behaviour unchanged.
+
+### Deliverables (Phase 8)
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 8.1 | Parallel task force execution | Done | `FabricConfig.task_force_mode` ('sequential'/'parallel'); `_run_task_force_parallel()` + `_merge_parallel_payloads()` in `execute_task.py`; asyncio.gather for concurrent packs; errors per-pack (non-fatal); 14 tests in `test_parallel_task_force.py` |
+| 8.2 | SSE run event streaming | Done | `event_queue: Optional[asyncio.Queue]` on `execute_task()`; `_emit()` helper mirrors every runlog event to queue; `run_complete` event written at end of every successful run; `_run_done_`/`_run_error_` sentinels terminate stream; `POST /run/stream` returns `text/event-stream`; 6 tests in `test_run_streaming.py` |
+| 8.3 | Run status endpoint | Done | `GET /runs/{run_id}/status` — reads runlog for `run_complete` event; returns `completed`/`running`/404; no full scan needed; 6 tests in `test_run_status.py` |
+| 8.4 | Docs update | Done | ARCHITECTURE.md (Phase 4-8 components, streaming flow, full runlog table); README.md (Phase 8 features, HTTP API, full CLI); CONTRIBUTING.md (new); LICENSE (MIT); PLAN.md Phase 8; VISION.md §7 updated |
+
+**Phase 8 acceptance:** All 4 deliverables implemented; fast CI: **368 pass** (+26 vs Phase 7).
+
+---
+
 ## Summary
 
 - **Resume by:** Reading STATE.md → PLAN.md (current phase) → run verification → do next deliverable.
 - **Always:** Keep STATE.md updated when completing or starting work; run `pytest tests/ -v` before considering a phase done.
-- **Value:** Phase 1 delivers a working, testable, documented fabric; Phase 2 aligns routing with the vision (task → capabilities → recruit); Phase 3 enables multi-pack task forces; Phase 4 adds observability and multi-backend LLM; Phase 5 adds MCP tool server support; Phase 6 adds workspace isolation (Podman), cross-run memory (run index), real MCP verification, and cloud LLM fallback; Phase 7 upgrades to semantic search, real enterprise integrations (GitHub, Confluence, Jira), and an enterprise research specialist.
+- **Value:** Phase 1 delivers a working, testable, documented fabric; Phase 2 aligns routing with the vision (task → capabilities → recruit); Phase 3 enables multi-pack task forces; Phase 4 adds observability and multi-backend LLM; Phase 5 adds MCP tool server support; Phase 6 adds workspace isolation (Podman), cross-run memory (run index), real MCP verification, and cloud LLM fallback; Phase 7 upgrades to semantic search, real enterprise integrations (GitHub, Confluence, Jira), and an enterprise research specialist; Phase 8 adds parallel task forces, SSE streaming, and run status.

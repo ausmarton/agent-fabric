@@ -99,7 +99,7 @@ We can start with a small set of very specialised pillars (e.g. engineering + re
 
 ## 7. Phasing and blueprint
 
-- **Phases 1–7 (complete):**
+- **Phases 1–8 (complete):**
   - Phase 1: Engineering + research packs, keyword router, CLI, HTTP API, local Ollama, sandbox, runlog.
   - Phase 2: Capability model; two-stage routing (prompt → required capabilities → pack by coverage); capability logged in runlog and HTTP `_meta`.
   - Phase 3: Multi-pack task forces; sequential execution with context handoff; shared workspace + runlog; `pack_start` events.
@@ -107,12 +107,13 @@ We can start with a small set of very specialised pillars (e.g. engineering + re
   - Phase 5: MCP tool server support — `MCPServerConfig` in config; `MCPAugmentedPack` wraps any specialist pack transparently; `aopen`/`aclose` lifecycle; tool names prefixed `mcp__<server>__<tool>`; optional `mcp` dep group.
   - Phase 6: Persistent run index + `fabric logs search`; real MCP server smoke test (filesystem); containerised workspace isolation via Podman (`ContainerisedSpecialistPack`; `:Z` SELinux label); cloud LLM fallback (`FallbackPolicy` + `FallbackChatClient`; `CloudFallbackConfig`).
   - Phase 7: Semantic run index search (`embed_text` + `cosine_similarity` + `semantic_search_index` via Ollama; `RunIndexConfig` with `embedding_model`); GitHub MCP real integration tests + `docs/MCP_INTEGRATIONS.md`; `enterprise_research` specialist (`cross_run_search` tool, staleness/confidence notation, `enterprise_search` + `github_search` capabilities).
+  - Phase 8: Parallel task force execution (`task_force_mode: parallel`; `asyncio.gather`; `_merge_parallel_payloads`); SSE streaming (`POST /run/stream`; `event_queue` on `execute_task`; `_emit` helper; `run_complete` event); run status endpoint (`GET /runs/{id}/status`).
 
-- **Phase 8+ (next):**
-  - Parallel task force execution (async concurrent packs, not sequential only).
+- **Phase 9+ (next):**
   - Richer orchestration: dynamic re-recruitment when a pack's output reveals additional capability needs.
-  - Real-time streaming of run progress via Server-Sent Events (SSE) on the HTTP API.
   - Persistent agent identity / session continuation (resume an interrupted run).
+  - Agent-to-agent delegation: specialists that can themselves recruit sub-specialists.
+  - Richer quality gates: automated test execution as a condition for `finish_task`.
 
 The full blueprint is reflected in PLAN.md, BACKLOG.md, REQUIREMENTS.md, and this document.
 
