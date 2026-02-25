@@ -17,10 +17,10 @@ sys.modules.setdefault("mcp.client", MagicMock())
 sys.modules.setdefault("mcp.client.stdio", MagicMock())
 sys.modules.setdefault("mcp.client.sse", MagicMock())
 
-from agent_fabric.config import load_config  # noqa: E402
-from agent_fabric.config.schema import FabricConfig, MCPServerConfig, SpecialistConfig  # noqa: E402
-from agent_fabric.infrastructure.mcp.augmented_pack import MCPAugmentedPack  # noqa: E402
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry  # noqa: E402
+from agentic_concierge.config import load_config  # noqa: E402
+from agentic_concierge.config.schema import ConciergeConfig, MCPServerConfig, SpecialistConfig  # noqa: E402
+from agentic_concierge.infrastructure.mcp.augmented_pack import MCPAugmentedPack  # noqa: E402
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -28,12 +28,12 @@ from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry  # 
 # ---------------------------------------------------------------------------
 
 def _minimal_model():
-    from agent_fabric.config.schema import ModelConfig
+    from agentic_concierge.config.schema import ModelConfig
     return ModelConfig(base_url="http://localhost:11434/v1", model="test-model")
 
 
-def _config_with_mcp(mcp_servers: list) -> FabricConfig:
-    return FabricConfig(
+def _config_with_mcp(mcp_servers: list) -> ConciergeConfig:
+    return ConciergeConfig(
         models={"q": _minimal_model()},
         specialists={
             "engineering": SpecialistConfig(
@@ -96,7 +96,7 @@ def test_get_pack_raises_runtime_error_when_mcp_not_installed():
     config = _config_with_mcp([_stdio_server()])
     registry = ConfigSpecialistRegistry(config)
     # Simulate mcp import failing inside the registry's conditional import.
-    with patch.dict("sys.modules", {"agent_fabric.infrastructure.mcp": None}):
+    with patch.dict("sys.modules", {"agentic_concierge.infrastructure.mcp": None}):
         with pytest.raises(RuntimeError, match="mcp.*package.*not installed"):
             registry.get_pack("engineering", "/tmp", network_allowed=False)
 
@@ -125,7 +125,7 @@ def test_get_pack_with_custom_builder_and_mcp_servers():
     sys.modules["_test_custom_mcp_builder_mod"] = mod
 
     try:
-        config = FabricConfig(
+        config = ConciergeConfig(
             models={"q": _minimal_model()},
             specialists={
                 "custom": SpecialistConfig(

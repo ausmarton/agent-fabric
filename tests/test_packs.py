@@ -4,8 +4,8 @@ from __future__ import annotations
 import tempfile
 
 import pytest
-from agent_fabric.infrastructure.specialists.engineering import build_engineering_pack
-from agent_fabric.infrastructure.specialists.research import build_research_pack
+from agentic_concierge.infrastructure.specialists.engineering import build_engineering_pack
+from agentic_concierge.infrastructure.specialists.research import build_research_pack
 
 
 def test_engineering_pack_has_tools():

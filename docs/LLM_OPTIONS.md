@@ -82,7 +82,7 @@ Below we go through each in detail.
 - Cross-platform (Linux, macOS, Windows); works on CPU for small models.
 - Aligns with VISION: Fedora/Linux, AMD-friendly (Vulkan/ROCm).
 - Fabric can start it when unreachable (`local_llm_start_cmd: ["ollama", "serve"]`).
-- No Python/CUDA version lock-in for the server; separate from fabric runtime.
+- No Python/CUDA version lock-in for the server; separate from concierge runtime.
 
 **Disadvantages**
 

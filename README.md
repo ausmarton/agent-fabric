@@ -1,4 +1,4 @@
-# agent-fabric
+# agentic-concierge
 
 A **quality-first agent orchestration framework** for local LLM inference.
 
@@ -20,7 +20,7 @@ A **quality-first agent orchestration framework** for local LLM inference.
 | **MCP tool servers** | stdio or SSE MCP servers attached per specialist via config; tools merged transparently |
 | **Cloud fallback** | Local model tried first; cloud model used when local fails a quality bar (no tool calls, malformed args) |
 | **Podman isolation** | Optional: wrap any pack with `ContainerisedSpecialistPack` by setting `container_image` in config |
-| **Semantic run index** | Every run is indexed; past runs are searchable by keyword or embedding similarity (`fabric logs search`) |
+| **Semantic run index** | Every run is indexed; past runs are searchable by keyword or embedding similarity (`concierge logs search`) |
 | **Real-time streaming** | `POST /run/stream` streams all run events as Server-Sent Events |
 | **Run status** | `GET /runs/{run_id}/status` returns `running` / `completed` without reading the full runlog |
 | **OpenTelemetry** | Optional `[otel]` dep; `fabric.execute_task`, `fabric.llm_call`, `fabric.tool_call` spans |
@@ -32,24 +32,24 @@ A **quality-first agent orchestration framework** for local LLM inference.
 ### From PyPI (recommended)
 
 ```bash
-pip install agent-fabric
+pip install agentic-concierge
 ```
 
 Install optional extras:
 
 ```bash
-pip install "agent-fabric[otel]"   # OpenTelemetry tracing
-pip install "agent-fabric[mcp]"    # MCP tool server support
+pip install "agentic-concierge[otel]"   # OpenTelemetry tracing
+pip install "agentic-concierge[mcp]"    # MCP tool server support
 ```
 
-### Docker (batteries-included: Ollama + agent-fabric)
+### Docker (batteries-included: Ollama + agentic-concierge)
 
 ```bash
 # Clone the repo for the config and docker-compose file
-git clone https://github.com/ausmarton/agent-fabric.git
-cd agent-fabric
+git clone https://github.com/ausmarton/agentic-concierge.git
+cd agentic-concierge
 
-# Start Ollama + agent-fabric (pulls qwen2.5:7b on first run)
+# Start Ollama + agentic-concierge (pulls qwen2.5:7b on first run)
 docker compose up -d
 
 # Run a task
@@ -58,15 +58,15 @@ curl -X POST http://localhost:8080/run \
   -d '{"prompt": "Create a file hello.txt with content Hello World", "pack": "engineering"}'
 ```
 
-The `docker-compose.yml` includes an Ollama service with a health check, an agent-fabric service, and a one-shot `model-pull` service that exits after pulling `qwen2.5:7b`.
+The `docker-compose.yml` includes an Ollama service with a health check, an agentic-concierge service, and a one-shot `model-pull` service that exits after pulling `qwen2.5:7b`.
 
-To use a different model, edit `examples/ollama.json` and re-mount it via `FABRIC_CONFIG_PATH`.
+To use a different model, edit `examples/ollama.json` and re-mount it via `CONCIERGE_CONFIG_PATH`.
 
 ### From source
 
 ```bash
-git clone https://github.com/ausmarton/agent-fabric.git
-cd agent-fabric
+git clone https://github.com/ausmarton/agentic-concierge.git
+cd agentic-concierge
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
@@ -92,46 +92,46 @@ curl -fsSL https://ollama.com/install.sh | sh          # official script
 ollama serve
 ```
 
-Pull a model (agent-fabric auto-pulls `qwen2.5:7b` if no chat model is found, but pre-pulling is faster):
+Pull a model (agentic-concierge auto-pulls `qwen2.5:7b` if no chat model is found, but pre-pulling is faster):
 
 ```bash
 ollama pull qwen2.5:7b     # fast model (default)
 ollama pull qwen2.5:14b    # quality model (optional)
 ```
 
-Any other model works — set `FABRIC_CONFIG_PATH` to point at a config with your preferred model name.
+Any other model works — set `CONCIERGE_CONFIG_PATH` to point at a config with your preferred model name.
 
-### 3. Install agent-fabric
+### 3. Install agentic-concierge
 
 ```bash
-pip install agent-fabric
+pip install agentic-concierge
 # or from source:
-# cd /path/to/agent-fabric && pip install -e .
+# cd /path/to/agentic-concierge && pip install -e .
 ```
 
 ### 4. Run
 
 ```bash
 # Quick smoke test — creates a file and lists the workspace
-fabric run "Create a file hello.txt with content Hello World, then list the workspace." --pack engineering
+concierge run "Create a file hello.txt with content Hello World, then list the workspace." --pack engineering
 ```
 
 Stream events as they happen with `--stream` (shows tool calls, LLM steps, results in real-time):
 
 ```bash
-fabric run "Build a Flask /health endpoint with a test" --pack engineering --stream
+concierge run "Build a Flask /health endpoint with a test" --pack engineering --stream
 ```
 
 You should see a run directory path and JSON with `"action": "final"`. Check:
-- `.fabric/runs/<run_id>/workspace/hello.txt` — artifact
-- `.fabric/runs/<run_id>/runlog.jsonl` — structured event log (tool calls, LLM responses, etc.)
+- `.concierge/runs/<run_id>/workspace/hello.txt` — artifact
+- `.concierge/runs/<run_id>/runlog.jsonl` — structured event log (tool calls, LLM responses, etc.)
 
 ---
 
 ## CLI reference
 
 ```
-fabric run PROMPT [OPTIONS]
+concierge run PROMPT [OPTIONS]
 
   Run a task using a specialist pack.
 
@@ -144,7 +144,7 @@ fabric run PROMPT [OPTIONS]
     --stream / -s            Stream run events to the terminal as they happen.
     --verbose                Enable DEBUG logging
 
-fabric serve [OPTIONS]
+concierge serve [OPTIONS]
 
   Start the HTTP API server.
 
@@ -152,15 +152,15 @@ fabric serve [OPTIONS]
     --host TEXT  [default: 127.0.0.1]
     --port INT   [default: 8787]
 
-fabric logs list [OPTIONS]
+concierge logs list [OPTIONS]
 
   List past runs (most recent first).
 
   Options:
-    --workspace PATH   [default: .fabric]
+    --workspace PATH   [default: .concierge]
     --limit N          [default: 20]
 
-fabric logs show RUN_ID [OPTIONS]
+concierge logs show RUN_ID [OPTIONS]
 
   Pretty-print runlog events for a run.
 
@@ -169,7 +169,7 @@ fabric logs show RUN_ID [OPTIONS]
     --kinds TEXT   Comma-separated event kinds to filter
                    (e.g. tool_call,tool_result)
 
-fabric logs search QUERY [OPTIONS]
+concierge logs search QUERY [OPTIONS]
 
   Search the cross-run index.
   Uses semantic similarity when embedding_model is configured;
@@ -187,8 +187,8 @@ fabric logs search QUERY [OPTIONS]
 Start the server:
 
 ```bash
-fabric serve
-# or: uvicorn agent_fabric.interfaces.http_api:app --host 0.0.0.0 --port 8787
+concierge serve
+# or: uvicorn agentic_concierge.interfaces.http_api:app --host 0.0.0.0 --port 8787
 ```
 
 ### `GET /health`
@@ -247,20 +247,20 @@ Each event is a `data: <json>\n\n` SSE line. Event kinds:
 
 ### Rate limiting
 
-When `FABRIC_RATE_LIMIT` is set to a positive integer, the API enforces a per-IP sliding-window rate limit (requests per minute). `GET /health` is always exempt. Excess requests receive `429 Too Many Requests` with a `Retry-After` header:
+When `CONCIERGE_RATE_LIMIT` is set to a positive integer, the API enforces a per-IP sliding-window rate limit (requests per minute). `GET /health` is always exempt. Excess requests receive `429 Too Many Requests` with a `Retry-After` header:
 
 ```bash
-export FABRIC_RATE_LIMIT=60   # 60 requests per minute per IP (default: no limit)
-fabric serve
+export CONCIERGE_RATE_LIMIT=60   # 60 requests per minute per IP (default: no limit)
+concierge serve
 ```
 
 ### API key authentication
 
-When `FABRIC_API_KEY` is set, every endpoint except `GET /health` requires an `Authorization: Bearer <key>` header:
+When `CONCIERGE_API_KEY` is set, every endpoint except `GET /health` requires an `Authorization: Bearer <key>` header:
 
 ```bash
-export FABRIC_API_KEY="your-strong-secret"
-fabric serve
+export CONCIERGE_API_KEY="your-strong-secret"
+concierge serve
 
 # Include the header in every request:
 curl -X POST http://127.0.0.1:8787/run \
@@ -269,7 +269,7 @@ curl -X POST http://127.0.0.1:8787/run \
   -d '{"prompt": "hello"}'
 ```
 
-Leave `FABRIC_API_KEY` unset (default) to disable authentication — suitable for local use. Uses constant-time comparison (`hmac.compare_digest`) to prevent timing attacks.
+Leave `CONCIERGE_API_KEY` unset (default) to disable authentication — suitable for local use. Uses constant-time comparison (`hmac.compare_digest`) to prevent timing attacks.
 
 ### `GET /runs/{run_id}/status`
 
@@ -287,10 +287,10 @@ Status values: `running`, `completed`. Returns HTTP 404 if the run ID is not fou
 
 ## Configuration
 
-Set `FABRIC_CONFIG_PATH` to a JSON or YAML file to override the defaults.
+Set `CONCIERGE_CONFIG_PATH` to a JSON or YAML file to override the defaults.
 
 ```bash
-export FABRIC_CONFIG_PATH=/path/to/your/config.json
+export CONCIERGE_CONFIG_PATH=/path/to/your/config.json
 ```
 
 The default config uses Ollama at `localhost:11434` with `qwen2.5:7b` (fast) and `qwen2.5:14b` (quality). Copy `examples/ollama.json` as a starting point.
@@ -421,8 +421,8 @@ All `shell` tool calls execute inside an isolated Podman container with the work
 
 ```python
 # mypackage/packs.py
-from agent_fabric.infrastructure.specialists.base import BaseSpecialistPack
-from agent_fabric.infrastructure.specialists.tool_defs import make_tool_def, make_finish_tool_def
+from agentic_concierge.infrastructure.specialists.base import BaseSpecialistPack
+from agentic_concierge.infrastructure.specialists.tool_defs import make_tool_def, make_finish_tool_def
 
 def build_my_pack(workspace_path: str, network_allowed: bool):
     tools = {
@@ -458,7 +458,7 @@ def build_my_pack(workspace_path: str, network_allowed: bool):
 
 ## Runlog
 
-Every run produces `.fabric/runs/<run_id>/runlog.jsonl`. Each line:
+Every run produces `.concierge/runs/<run_id>/runlog.jsonl`. Each line:
 
 ```json
 {"ts": 1708800000.123, "kind": "tool_call", "step": "step_0", "payload": {"tool": "shell", "args": {"cmd": "ls"}}}
@@ -467,8 +467,8 @@ Every run produces `.fabric/runs/<run_id>/runlog.jsonl`. Each line:
 Inspect with:
 
 ```bash
-fabric logs show <run_id>
-fabric logs show <run_id> --kinds tool_call,tool_result
+concierge logs show <run_id>
+concierge logs show <run_id> --kinds tool_call,tool_result
 ```
 
 ---
@@ -488,7 +488,7 @@ pytest tests/ -k "not real_llm and not real_mcp and not podman" -q
 python scripts/validate_full.py
 ```
 
-Ensures the LLM is reachable (starts it if needed via config), then runs all tests including real-LLM E2E tests. Use `ollama pull qwen2.5:7b` or set `FABRIC_CONFIG_PATH` to a config with a model you have.
+Ensures the LLM is reachable (starts it if needed via config), then runs all tests including real-LLM E2E tests. Use `ollama pull qwen2.5:7b` or set `CONCIERGE_CONFIG_PATH` to a config with a model you have.
 
 **Single E2E check**:
 

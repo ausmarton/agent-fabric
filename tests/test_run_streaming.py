@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_fabric.application.execute_task import _emit
+from agentic_concierge.application.execute_task import _emit
 
 
 # ---------------------------------------------------------------------------
@@ -51,10 +51,10 @@ def test_emit_step_defaults_to_none():
 @pytest.mark.asyncio
 async def test_execute_task_emits_recruitment_and_run_done():
     """execute_task puts recruitment + _run_done_ to queue even for a simple run."""
-    from agent_fabric.application.execute_task import execute_task
-    from agent_fabric.domain import Task, RunId
-    from agent_fabric.domain.models import LLMResponse, ToolCallRequest
-    from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig
+    from agentic_concierge.application.execute_task import execute_task
+    from agentic_concierge.domain import Task, RunId
+    from agentic_concierge.domain.models import LLMResponse, ToolCallRequest
+    from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig
 
     task = Task(
         prompt="Test streaming",
@@ -62,7 +62,7 @@ async def test_execute_task_emits_recruitment_and_run_done():
         model_key="fast",
         network_allowed=False,
     )
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"fast": ModelConfig(base_url="http://x/v1", model="m")},
         specialists={
             "engineering": SpecialistConfig(description="eng", workflow="engineering"),
@@ -138,10 +138,10 @@ async def test_execute_task_emits_recruitment_and_run_done():
 @pytest.mark.asyncio
 async def test_execute_task_emits_llm_request_and_tool_call():
     """execute_task emits llm_request and tool_call events to the queue."""
-    from agent_fabric.application.execute_task import execute_task
-    from agent_fabric.domain import Task, RunId
-    from agent_fabric.domain.models import LLMResponse, ToolCallRequest
-    from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig
+    from agentic_concierge.application.execute_task import execute_task
+    from agentic_concierge.domain import Task, RunId
+    from agentic_concierge.domain.models import LLMResponse, ToolCallRequest
+    from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig
 
     task = Task(
         prompt="Test events",
@@ -149,7 +149,7 @@ async def test_execute_task_emits_llm_request_and_tool_call():
         model_key="fast",
         network_allowed=False,
     )
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"fast": ModelConfig(base_url="http://x/v1", model="m")},
         specialists={
             "engineering": SpecialistConfig(description="eng", workflow="engineering"),
@@ -227,9 +227,9 @@ async def test_execute_task_emits_llm_request_and_tool_call():
 def test_run_stream_returns_event_stream_content_type():
     """POST /run/stream returns text/event-stream content-type."""
     from fastapi.testclient import TestClient
-    from agent_fabric.interfaces.http_api import app
-    from agent_fabric.domain import RunId
-    from agent_fabric.domain.models import LLMResponse, ToolCallRequest
+    from agentic_concierge.interfaces.http_api import app
+    from agentic_concierge.domain import RunId
+    from agentic_concierge.domain.models import LLMResponse, ToolCallRequest
 
     call_count = 0
 
@@ -264,12 +264,12 @@ def test_run_stream_returns_event_stream_content_type():
 
     run_id = RunId("stream-http-run")
 
-    with patch("agent_fabric.interfaces.http_api.resolve_llm") as mock_resolve, \
-         patch("agent_fabric.interfaces.http_api.build_chat_client") as mock_build_client, \
-         patch("agent_fabric.interfaces.http_api.FileSystemRunRepository") as mock_repo_cls, \
-         patch("agent_fabric.interfaces.http_api.ConfigSpecialistRegistry") as mock_registry_cls:
+    with patch("agentic_concierge.interfaces.http_api.resolve_llm") as mock_resolve, \
+         patch("agentic_concierge.interfaces.http_api.build_chat_client") as mock_build_client, \
+         patch("agentic_concierge.interfaces.http_api.FileSystemRunRepository") as mock_repo_cls, \
+         patch("agentic_concierge.interfaces.http_api.ConfigSpecialistRegistry") as mock_registry_cls:
 
-        from agent_fabric.config.schema import ModelConfig
+        from agentic_concierge.config.schema import ModelConfig
         mock_resolved = MagicMock()
         mock_resolved.model_config = ModelConfig(base_url="http://x/v1", model="m")
         mock_resolved.base_url = "http://x/v1"
@@ -301,9 +301,9 @@ def test_run_stream_returns_event_stream_content_type():
 def test_run_stream_events_are_sse_formatted():
     """Events in the stream use `data: {...}\\n\\n` format."""
     from fastapi.testclient import TestClient
-    from agent_fabric.interfaces.http_api import app
-    from agent_fabric.domain import RunId
-    from agent_fabric.domain.models import LLMResponse, ToolCallRequest
+    from agentic_concierge.interfaces.http_api import app
+    from agentic_concierge.domain import RunId
+    from agentic_concierge.domain.models import LLMResponse, ToolCallRequest
 
     call_count = 0
 
@@ -338,12 +338,12 @@ def test_run_stream_events_are_sse_formatted():
 
     run_id = RunId("stream-fmt-run")
 
-    with patch("agent_fabric.interfaces.http_api.resolve_llm") as mock_resolve, \
-         patch("agent_fabric.interfaces.http_api.build_chat_client") as mock_build_client, \
-         patch("agent_fabric.interfaces.http_api.FileSystemRunRepository") as mock_repo_cls, \
-         patch("agent_fabric.interfaces.http_api.ConfigSpecialistRegistry") as mock_registry_cls:
+    with patch("agentic_concierge.interfaces.http_api.resolve_llm") as mock_resolve, \
+         patch("agentic_concierge.interfaces.http_api.build_chat_client") as mock_build_client, \
+         patch("agentic_concierge.interfaces.http_api.FileSystemRunRepository") as mock_repo_cls, \
+         patch("agentic_concierge.interfaces.http_api.ConfigSpecialistRegistry") as mock_registry_cls:
 
-        from agent_fabric.config.schema import ModelConfig
+        from agentic_concierge.config.schema import ModelConfig
         mock_resolved = MagicMock()
         mock_resolved.model_config = ModelConfig(base_url="http://x/v1", model="m")
         mock_resolved.base_url = "http://x/v1"

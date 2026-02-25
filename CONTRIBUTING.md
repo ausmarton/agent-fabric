@@ -1,4 +1,4 @@
-# Contributing to agent-fabric
+# Contributing to agentic-concierge
 
 Thank you for your interest in contributing. This document covers setting up your development environment, running tests, code style, and how to add new capabilities.
 
@@ -23,7 +23,7 @@ Thank you for your interest in contributing. This document covers setting up you
 ```bash
 # Clone the repo
 git clone <repo-url>
-cd agent-fabric
+cd agentic-concierge
 
 # Create a virtual environment
 python3 -m venv .venv
@@ -97,7 +97,7 @@ Key conventions:
 ## Project structure
 
 ```
-src/agent_fabric/
+src/agentic_concierge/
 ├── domain/         Pure data structures (Task, RunResult, LLMResponse, …). No I/O.
 ├── application/    Business logic (execute_task, recruit). Imports domain + ports only.
 ├── infrastructure/ Adapters: LLM clients, specialist packs, tools, workspace, MCP.
@@ -130,8 +130,8 @@ Write a factory function that returns a `SpecialistPack`:
 
 ```python
 # mypackage/packs.py
-from agent_fabric.infrastructure.specialists.base import BaseSpecialistPack
-from agent_fabric.infrastructure.specialists.tool_defs import make_tool_def, make_finish_tool_def
+from agentic_concierge.infrastructure.specialists.base import BaseSpecialistPack
+from agentic_concierge.infrastructure.specialists.tool_defs import make_tool_def, make_finish_tool_def
 
 def build_my_pack(workspace_path: str, network_allowed: bool) -> BaseSpecialistPack:
     async def my_tool(args: dict) -> dict:
@@ -176,7 +176,7 @@ The registry imports and calls `build_my_pack(workspace_path, network_allowed)` 
 
 ### Option B — built-in pack
 
-1. Add `src/agent_fabric/infrastructure/specialists/my_pack.py` with `build_my_pack(workspace_path, network_allowed)`.
+1. Add `src/agentic_concierge/infrastructure/specialists/my_pack.py` with `build_my_pack(workspace_path, network_allowed)`.
 2. Register in `_DEFAULT_BUILDERS` in `infrastructure/specialists/registry.py`.
 3. Add an entry to `DEFAULT_CONFIG` in `config/schema.py` and add its capability keywords to `config/capabilities.py`.
 4. Write tests in `tests/test_packs.py` or a new `tests/test_my_pack.py`.
@@ -213,7 +213,7 @@ MCP tools are auto-discovered at startup and appear as `mcp__my_server__<tool_na
 Example of a sandboxed file tool:
 
 ```python
-from agent_fabric.infrastructure.tools.sandbox import SandboxPolicy
+from agentic_concierge.infrastructure.tools.sandbox import SandboxPolicy
 
 def read_text(args: dict, sandbox: SandboxPolicy) -> dict:
     path = sandbox.safe_path(args["path"])   # raises PermissionError if path escapes workspace
@@ -230,8 +230,8 @@ def read_text(args: dict, sandbox: SandboxPolicy) -> dict:
 Implement the `ChatClient` protocol from `application/ports.py`:
 
 ```python
-from agent_fabric.application.ports import ChatClient
-from agent_fabric.domain.models import LLMResponse
+from agentic_concierge.application.ports import ChatClient
+from agentic_concierge.domain.models import LLMResponse
 
 class MyBackendClient:
     async def chat(
@@ -294,7 +294,7 @@ Releases are fully automated via GitHub Actions on version tags. No manual PyPI 
 3. **The release workflow (`.github/workflows/release.yml`) runs automatically:**
    - Builds the wheel and sdist
    - Publishes to PyPI via OIDC trusted publishing (no API token required)
-   - Builds and pushes the Docker image to GHCR (`ghcr.io/ausmarton/agent-fabric:0.2.0` and `:latest`)
+   - Builds and pushes the Docker image to GHCR (`ghcr.io/ausmarton/agentic-concierge:0.2.0` and `:latest`)
    - Creates a GitHub Release with the dist artifacts attached
 
 ### One-time PyPI setup (trusted publishing)
@@ -302,7 +302,7 @@ Releases are fully automated via GitHub Actions on version tags. No manual PyPI 
 On first release, create the project on PyPI and configure trusted publishing:
 
 1. Go to [pypi.org/manage/account/publishing](https://pypi.org/manage/account/publishing/).
-2. Add a new trusted publisher: owner `ausmarton`, repo `agent-fabric`, workflow `release.yml`, environment `pypi`.
+2. Add a new trusted publisher: owner `ausmarton`, repo `agentic-concierge`, workflow `release.yml`, environment `pypi`.
 3. No API token is needed after this point.
 
 ### Branch protection (recommended)

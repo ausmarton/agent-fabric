@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agent_fabric.config import DEFAULT_CONFIG, FabricConfig, get_config, load_config
-from agent_fabric.config import loader as config_loader
-from agent_fabric.config.schema import MCPServerConfig, ModelConfig, SpecialistConfig
+from agentic_concierge.config import DEFAULT_CONFIG, ConciergeConfig, get_config, load_config
+from agentic_concierge.config import loader as config_loader
+from agentic_concierge.config.schema import MCPServerConfig, ModelConfig, SpecialistConfig
 
 
 def test_get_config_default(monkeypatch):
-    monkeypatch.delenv("FABRIC_CONFIG_PATH", raising=False)
+    monkeypatch.delenv("CONCIERGE_CONFIG_PATH", raising=False)
     monkeypatch.setattr(config_loader, "_env", None)
     cfg = get_config()
     assert cfg is DEFAULT_CONFIG
@@ -37,7 +37,7 @@ def test_get_config_from_file(monkeypatch):
         }, f)
         path = f.name
     try:
-        monkeypatch.setenv("FABRIC_CONFIG_PATH", path)
+        monkeypatch.setenv("CONCIERGE_CONFIG_PATH", path)
         monkeypatch.setattr(config_loader, "_env", None)
         cfg = get_config()
         assert cfg.models["custom"].model == "my-model"
@@ -65,7 +65,7 @@ def test_config_local_llm_from_file(monkeypatch):
         }, f)
         path = f.name
     try:
-        monkeypatch.setenv("FABRIC_CONFIG_PATH", path)
+        monkeypatch.setenv("CONCIERGE_CONFIG_PATH", path)
         monkeypatch.setattr(config_loader, "_env", None)
         cfg = get_config()
         assert cfg.local_llm_ensure_available is False
@@ -77,7 +77,7 @@ def test_config_local_llm_from_file(monkeypatch):
 
 def test_load_config_is_cached(monkeypatch):
     """Repeated calls to load_config() return the same object (cache hit)."""
-    monkeypatch.delenv("FABRIC_CONFIG_PATH", raising=False)
+    monkeypatch.delenv("CONCIERGE_CONFIG_PATH", raising=False)
     first = load_config()
     second = load_config()
     assert first is second, "load_config() must return the cached object on repeat calls"
@@ -91,7 +91,7 @@ def test_load_config_cache_clear_forces_reload(monkeypatch, tmp_path):
         "specialists": DEFAULT_CONFIG.model_dump()["specialists"],
     }))
 
-    monkeypatch.setenv("FABRIC_CONFIG_PATH", str(cfg_file))
+    monkeypatch.setenv("CONCIERGE_CONFIG_PATH", str(cfg_file))
     monkeypatch.setattr(config_loader, "_env", None)
     first = load_config()
     assert first.models["q"].model == "m1"
@@ -118,7 +118,7 @@ def _minimal_model() -> ModelConfig:
 
 
 def test_default_config_is_valid():
-    """DEFAULT_CONFIG must pass all FabricConfig validators."""
+    """DEFAULT_CONFIG must pass all ConciergeConfig validators."""
     # Constructing DEFAULT_CONFIG at import time already validates it; this
     # test makes the expectation explicit and will catch regressions.
     assert "engineering" in DEFAULT_CONFIG.specialists
@@ -128,12 +128,12 @@ def test_default_config_is_valid():
 def test_empty_specialists_raises_validation_error():
     """A config with no specialists is rejected at construction time."""
     with pytest.raises(ValidationError, match="specialists must not be empty"):
-        FabricConfig(models={"q": _minimal_model()}, specialists={})
+        ConciergeConfig(models={"q": _minimal_model()}, specialists={})
 
 
 def test_single_specialist_is_valid():
     """A config with exactly one specialist passes validation."""
-    cfg = FabricConfig(
+    cfg = ConciergeConfig(
         models={"q": _minimal_model()},
         specialists={
             "engineering": SpecialistConfig(
@@ -158,7 +158,7 @@ def test_config_legacy_auto_start_llm_keys(monkeypatch):
         }, f)
         path = f.name
     try:
-        monkeypatch.setenv("FABRIC_CONFIG_PATH", path)
+        monkeypatch.setenv("CONCIERGE_CONFIG_PATH", path)
         monkeypatch.setattr(config_loader, "_env", None)
         cfg = get_config()
         assert cfg.local_llm_ensure_available is True

@@ -1,4 +1,4 @@
-# agent-fabric: Current State
+# agentic-concierge: Current State
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
@@ -10,15 +10,15 @@
 
 Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are all done.
 
-- **P6-1:** Persistent cross-run run index (`run_index.jsonl`) + `fabric logs search`.
+- **P6-1:** Persistent cross-run run index (`run_index.jsonl`) + `concierge logs search`.
 - **P6-2:** Real MCP server smoke test (`tests/test_mcp_real_server.py`, `@pytest.mark.real_mcp`).
 - **P6-3:** Containerised workspace isolation — `ContainerisedSpecialistPack` runs `shell` inside Podman; `SpecialistConfig.container_image` triggers transparent wrapping.
-- **P6-4:** Cloud LLM fallback — `FallbackChatClient` + `FallbackPolicy`; `CloudFallbackConfig` on `FabricConfig`; `cloud_fallback` runlog events; auto-wrapping in `execute_task`.
-- **P7-1:** Semantic run index search — `embed_text()` via Ollama `/api/embeddings`; `cosine_similarity()`; `semantic_search_index()` with keyword fallback; `RunIndexConfig` on `FabricConfig`; `execute_task` embeds on success; `fabric logs search` uses semantic when available. 22 tests.
+- **P6-4:** Cloud LLM fallback — `FallbackChatClient` + `FallbackPolicy`; `CloudFallbackConfig` on `ConciergeConfig`; `cloud_fallback` runlog events; auto-wrapping in `execute_task`.
+- **P7-1:** Semantic run index search — `embed_text()` via Ollama `/api/embeddings`; `cosine_similarity()`; `semantic_search_index()` with keyword fallback; `RunIndexConfig` on `ConciergeConfig`; `execute_task` embeds on success; `concierge logs search` uses semantic when available. 22 tests.
 - **P7-2:** GitHub MCP real integration test + `docs/MCP_INTEGRATIONS.md`; `github_search` + `enterprise_search` capabilities added.
 - **P7-3:** `enterprise_research` specialist — `cross_run_search` tool (queries run index), staleness/confidence system prompt, `enterprise_search` + `github_search` capabilities; in `DEFAULT_CONFIG`. 16 tests.
 - **P7-4:** Docs update — STATE.md, PLAN.md, VISION.md §7+§8, BACKLOG.md all updated.
-- **P8-1:** Parallel task force execution — `task_force_mode` on `FabricConfig`; `_run_task_force_parallel()` + `_merge_parallel_payloads()` in `execute_task.py`; 14 tests.
+- **P8-1:** Parallel task force execution — `task_force_mode` on `ConciergeConfig`; `_run_task_force_parallel()` + `_merge_parallel_payloads()` in `execute_task.py`; 14 tests.
 - **P8-2:** SSE run event streaming — `event_queue: Optional[asyncio.Queue]` on `execute_task()`; `_emit()` helper; `POST /run/stream` SSE endpoint; `run_complete` runlog event; 6 tests.
 - **P8-3:** Run status endpoint — `GET /runs/{run_id}/status`; reads `run_complete` event for completion detection; 6 tests.
 - **P8-4:** Docs update — STATE.md, BACKLOG.md, PLAN.md updated.
@@ -29,14 +29,14 @@ Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are a
 
 | # | Deliverable | Status | Notes |
 |---|-------------|--------|--------|
-| 1.1 | CLI: `fabric run`, `fabric serve` | Done | `src/agent_fabric/interfaces/cli.py` |
-| 1.2 | HTTP API: `/health`, `POST /run` | Done | `src/agent_fabric/interfaces/http_api.py` |
-| 1.3 | Config: defaults + `FABRIC_CONFIG_PATH` | Done | `agent_fabric.config.load_config` |
-| 1.4 | Recruit: keyword + fallback | Done | `agent_fabric.application.recruit`; `tests/test_router.py` |
-| 1.5 | Execute task: run dir, workspace, runlog, one pack | Done | `agent_fabric.application.execute_task` |
-| 1.6 | Engineering specialist | Done | `src/agent_fabric/infrastructure/specialists/engineering.py` |
-| 1.7 | Research specialist | Done | `src/agent_fabric/infrastructure/specialists/research.py`; web tools gated by `network_allowed` |
-| 1.8 | Sandbox: path safety, shell allowlist | Done | `src/agent_fabric/infrastructure/tools/sandbox.py`; `tests/test_sandbox.py` |
+| 1.1 | CLI: `concierge run`, `concierge serve` | Done | `src/agentic_concierge/interfaces/cli.py` |
+| 1.2 | HTTP API: `/health`, `POST /run` | Done | `src/agentic_concierge/interfaces/http_api.py` |
+| 1.3 | Config: defaults + `CONCIERGE_CONFIG_PATH` | Done | `agentic_concierge.config.load_config` |
+| 1.4 | Recruit: keyword + fallback | Done | `agentic_concierge.application.recruit`; `tests/test_router.py` |
+| 1.5 | Execute task: run dir, workspace, runlog, one pack | Done | `agentic_concierge.application.execute_task` |
+| 1.6 | Engineering specialist | Done | `src/agentic_concierge/infrastructure/specialists/engineering.py` |
+| 1.7 | Research specialist | Done | `src/agentic_concierge/infrastructure/specialists/research.py`; web tools gated by `network_allowed` |
+| 1.8 | Sandbox: path safety, shell allowlist | Done | `src/agentic_concierge/infrastructure/tools/sandbox.py`; `tests/test_sandbox.py` |
 | 1.9 | Runlog + model params to LLM | Done | `model_cfg` passed; runlog in run dir |
 | 1.10 | Quality gates in prompts | Done | FR5; deploy proposed only; citations from fetch only |
 | 1.11 | Automated tests | Done | `tests/` — router, sandbox, json_tools, prompts, config, packs |
@@ -50,8 +50,8 @@ Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are a
 **Integration assurance** requires **at least a couple of E2E tests that run against a real LLM** to run and pass. Mocked and unit tests add value (fast feedback, wiring, contracts); real-LLM E2E are essential to ensure everything is integrated and working as expected.
 
 - [x] **Full validation (proves system works):** `python scripts/validate_full.py` — ensures LLM is reachable (starts it if configured), then runs pytest so **all 42 tests** run (no skips). Must pass. If no LLM can be reached or started, the script exits with failure and does not run tests.
-- [x] **Run dir:** `fabric run "list files" --pack engineering` → creates `.fabric/runs/<id>/runlog.jsonl` and `workspace/` (connection error without LLM server is expected).
-- [x] **API:** `fabric serve` then `curl http://127.0.0.1:8787/health` → `{"ok": true}`. `POST /run` without LLM returns **503** with a clear detail message.
+- [x] **Run dir:** `concierge run "list files" --pack engineering` → creates `.concierge/runs/<id>/runlog.jsonl` and `workspace/` (connection error without LLM server is expected).
+- [x] **API:** `concierge serve` then `curl http://127.0.0.1:8787/health` → `{"ok": true}`. `POST /run` without LLM returns **503** with a clear detail message.
 - [x] **REQUIREMENTS:** Manual validation items 1–4 in REQUIREMENTS.md hold (CLI help, routing, run structure, API health).
 - [x] **E2E (real LLM):** With a real LLM available, `python scripts/verify_working_real.py` → exits 0; runlog has tool_call and tool_result; workspace has artifacts. Same is asserted by the real-LLM pytest tests when run via `validate_full.py`.
 
@@ -71,7 +71,7 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 
 | Area | How it’s tested |
 |------|------------------|
-| CLI `fabric run` / `fabric serve` | pytest (integration + API); real CLI run with real LLM (engineering task). |
+| CLI `concierge run` / `concierge serve` | pytest (integration + API); real CLI run with real LLM (engineering task). |
 | API `GET /health`, `POST /run` | pytest (health, POST with mocked execute_task); POST without LLM → 503. |
 | Config, recruit, sandbox, runlog, packs | Unit and integration tests (test_config, test_router, test_sandbox, test_packs, test_integration, etc.). |
 | Engineering pack with real LLM, tool use, artifacts | `verify_working_real.py` (exits 0; tool_call/tool_result; workspace e.g. hello.txt). |
@@ -84,9 +84,9 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 
 | Check | Command / how |
 |-------|----------------|
-| **Research pack with real LLM** (REQUIREMENTS §6) | `fabric run "Mini systematic review of post-quantum crypto performance." --pack research` (with `network_allowed` true if you want web tools). Inspect runlog for web_search/fetch_url and workspace for deliverables. |
-| **API POST /run with real LLM** | `fabric serve` in one terminal; `curl -X POST http://127.0.0.1:8787/run -H "Content-Type: application/json" -d '{"prompt":"Create a file ok.txt with content OK","pack":"engineering"}'`. Expect 200 and JSON with `_meta` and payload. |
-| **Local LLM bootstrap (start if unreachable)** | With Ollama stopped, run `fabric run "list files" --pack engineering` (default `local_llm_ensure_available: true`). Fabric should start `ollama serve` and then run; or fail with a clear “couldn’t start or reach” message if Ollama isn’t installed. |
+| **Research pack with real LLM** (REQUIREMENTS §6) | `concierge run "Mini systematic review of post-quantum crypto performance." --pack research` (with `network_allowed` true if you want web tools). Inspect runlog for web_search/fetch_url and workspace for deliverables. |
+| **API POST /run with real LLM** | `concierge serve` in one terminal; `curl -X POST http://127.0.0.1:8787/run -H "Content-Type: application/json" -d '{"prompt":"Create a file ok.txt with content OK","pack":"engineering"}'`. Expect 200 and JSON with `_meta` and payload. |
+| **Local LLM bootstrap (start if unreachable)** | With Ollama stopped, run `concierge run "list files" --pack engineering` (default `local_llm_ensure_available: true`). Fabric should start `ollama serve` and then run; or fail with a clear “couldn’t start or reach” message if Ollama isn’t installed. |
 
 **Not automated (prompt/behaviour)**
 
@@ -123,7 +123,7 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 | # | Deliverable | Status | Notes |
 |---|-------------|--------|-------|
 | 4.1 | Generic/cloud LLM client + `ModelConfig.backend` field | Done | `infrastructure/chat/__init__.py` (build_chat_client factory); `GenericChatClient` in `infrastructure/chat/generic.py`; shared `parse_chat_response()` in `_parser.py`; `backend: str = “ollama”` on `ModelConfig` |
-| 4.2 | `fabric logs` CLI subcommand | Done | `logs list` (Rich table) and `logs show` (pretty-printed JSON with kind filter) in `interfaces/cli.py`; `RunSummary` + `list_runs()` + `read_run_events()` in `infrastructure/workspace/run_reader.py` |
+| 4.2 | `concierge logs` CLI subcommand | Done | `logs list` (Rich table) and `logs show` (pretty-printed JSON with kind filter) in `interfaces/cli.py`; `RunSummary` + `list_runs()` + `read_run_events()` in `infrastructure/workspace/run_reader.py` |
 | 4.3 | OpenTelemetry tracing (optional dep) | Done | `infrastructure/telemetry.py` (`_NoOpSpan`, `_NoOpTracer`, `setup_telemetry()`, `get_tracer()`); graceful no-op when OTEL not installed; `TelemetryConfig` in `config/schema.py`; `fabric.execute_task` / `fabric.llm_call` / `fabric.tool_call` spans in `execute_task.py`; `[otel]` extra in `pyproject.toml` |
 | 4.4 | Docs update | Done | BACKLOG.md Phase 4 section; STATE.md; PLAN.md Phase 4 concrete deliverables |
 
@@ -161,12 +161,12 @@ pip install -e ".[dev]"
 pytest tests/ -v
 
 # CLI
-fabric --help
-fabric run "list files" --pack engineering
-fabric run "mini systematic review of X" --pack research
+concierge --help
+concierge run "list files" --pack engineering
+concierge run "mini systematic review of X" --pack research
 
 # API (background)
-fabric serve
+concierge serve
 # then: curl http://127.0.0.1:8787/health
 # POST: curl -X POST http://127.0.0.1:8787/run -H "Content-Type: application/json" -d '{"prompt":"list files","pack":"engineering"}'
 ```

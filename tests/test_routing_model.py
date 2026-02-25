@@ -1,4 +1,4 @@
-"""Tests for routing_model_key config field in FabricConfig.
+"""Tests for routing_model_key config field in ConciergeConfig.
 
 Verifies that:
 - execute_task uses the routing model (config.routing_model_key) for the
@@ -14,13 +14,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agent_fabric.application.execute_task import execute_task
-from agent_fabric.config import DEFAULT_CONFIG, FabricConfig
-from agent_fabric.config.schema import ModelConfig, SpecialistConfig
-from agent_fabric.domain import LLMResponse, Task, ToolCallRequest
-from agent_fabric.infrastructure.ollama import OllamaChatClient
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
-from agent_fabric.infrastructure.workspace import FileSystemRunRepository
+from agentic_concierge.application.execute_task import execute_task
+from agentic_concierge.config import DEFAULT_CONFIG, ConciergeConfig
+from agentic_concierge.config.schema import ModelConfig, SpecialistConfig
+from agentic_concierge.domain import LLMResponse, Task, ToolCallRequest
+from agentic_concierge.infrastructure.ollama import OllamaChatClient
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry
+from agentic_concierge.infrastructure.workspace import FileSystemRunRepository
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ def _make_capturing_side_effect(
 
 
 async def _run_with_captured_models(
-    config: FabricConfig,
+    config: ConciergeConfig,
     mock_responses: list[LLMResponse],
     prompt: str,
     tmp_path,
@@ -141,7 +141,7 @@ async def test_routing_uses_fast_model_by_default(tmp_path):
 @pytest.mark.asyncio
 async def test_routing_uses_explicit_routing_model_key(tmp_path):
     """A custom routing_model_key is used for the routing call."""
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={
             "fast": ModelConfig(base_url="http://localhost:11434/v1", model="qwen2.5:7b"),
             "quality": ModelConfig(base_url="http://localhost:11434/v1", model="qwen2.5:14b"),
@@ -171,7 +171,7 @@ async def test_routing_uses_explicit_routing_model_key(tmp_path):
 @pytest.mark.asyncio
 async def test_routing_falls_back_to_task_model_when_key_missing(tmp_path):
     """When routing_model_key is absent from config.models, the task model is used for routing."""
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={
             "quality": ModelConfig(base_url="http://localhost:11434/v1", model="qwen2.5:14b"),
         },
@@ -203,8 +203,8 @@ def test_routing_model_key_field_default():
     """routing_model_key defaults to 'fast' in DEFAULT_CONFIG and in freshly constructed configs."""
     assert DEFAULT_CONFIG.routing_model_key == "fast"
 
-    # A FabricConfig constructed without explicit routing_model_key also has "fast".
-    config = FabricConfig(
+    # A ConciergeConfig constructed without explicit routing_model_key also has "fast".
+    config = ConciergeConfig(
         models={
             "fast": ModelConfig(base_url="http://localhost:11434/v1", model="qwen2.5:7b"),
         },

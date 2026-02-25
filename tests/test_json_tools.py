@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from agent_fabric.application.json_parsing import extract_json
+from agentic_concierge.application.json_parsing import extract_json
 
 
 def test_full_json():

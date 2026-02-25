@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_fabric.infrastructure.workspace.run_index import (
+from agentic_concierge.infrastructure.workspace.run_index import (
     RunIndexEntry,
     _entry_from_dict,
     append_to_index,
@@ -24,7 +24,7 @@ from agent_fabric.infrastructure.workspace.run_index import (
     search_index,
     semantic_search_index,
 )
-from agent_fabric.config.schema import RunIndexConfig
+from agentic_concierge.config.schema import RunIndexConfig
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +283,7 @@ async def test_semantic_search_falls_back_to_keyword_when_embed_text_fails(tmp_p
     ])
 
     with patch(
-        "agent_fabric.infrastructure.workspace.run_index.embed_text",
+        "agentic_concierge.infrastructure.workspace.run_index.embed_text",
         side_effect=Exception("server offline"),
     ):
         result = await semantic_search_index(
@@ -308,7 +308,7 @@ async def test_semantic_search_ranks_by_cosine_similarity(tmp_path: Path):
     query_embedding = [0.9, 0.1]
 
     with patch(
-        "agent_fabric.infrastructure.workspace.run_index.embed_text",
+        "agentic_concierge.infrastructure.workspace.run_index.embed_text",
         new_callable=AsyncMock,
         return_value=query_embedding,
     ):
@@ -331,7 +331,7 @@ async def test_semantic_search_respects_top_k(tmp_path: Path):
     workspace = _write_index(tmp_path, entries)
 
     with patch(
-        "agent_fabric.infrastructure.workspace.run_index.embed_text",
+        "agentic_concierge.infrastructure.workspace.run_index.embed_text",
         new_callable=AsyncMock,
         return_value=[1.0, 0.0],
     ):
@@ -360,9 +360,9 @@ def test_run_index_config_with_model():
 
 
 def test_fabric_config_has_run_index():
-    from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig
+    from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig
 
-    fc = FabricConfig(
+    fc = ConciergeConfig(
         models={"fast": ModelConfig(base_url="http://localhost:11434/v1", model="qwen2.5:7b")},
         specialists={
             "engineering": SpecialistConfig(

@@ -16,7 +16,7 @@ import pytest
 
 def _build(tmp_path: Path, *, network_allowed: bool = False):
     """Build an enterprise_research pack with a real workspace directory."""
-    from agent_fabric.infrastructure.specialists.enterprise_research import (
+    from agentic_concierge.infrastructure.specialists.enterprise_research import (
         build_enterprise_research_pack,
     )
 
@@ -59,13 +59,13 @@ def test_specialist_id(tmp_path: Path):
 
 
 def test_default_config_includes_enterprise_research():
-    from agent_fabric.config.schema import DEFAULT_CONFIG
+    from agentic_concierge.config.schema import DEFAULT_CONFIG
 
     assert "enterprise_research" in DEFAULT_CONFIG.specialists
 
 
 def test_enterprise_research_capabilities_in_default_config():
-    from agent_fabric.config.schema import DEFAULT_CONFIG
+    from agentic_concierge.config.schema import DEFAULT_CONFIG
 
     caps = DEFAULT_CONFIG.specialists["enterprise_research"].capabilities
     assert "enterprise_search" in caps
@@ -141,7 +141,7 @@ async def test_cross_run_search_returns_empty_when_no_index(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_cross_run_search_finds_entries_in_index(tmp_path: Path):
-    from agent_fabric.infrastructure.workspace.run_index import RunIndexEntry, append_to_index
+    from agentic_concierge.infrastructure.workspace.run_index import RunIndexEntry, append_to_index
 
     workspace = str(tmp_path / "runs" / "run1" / "workspace")
     Path(workspace).mkdir(parents=True, exist_ok=True)
@@ -161,7 +161,7 @@ async def test_cross_run_search_finds_entries_in_index(tmp_path: Path):
         ),
     )
 
-    from agent_fabric.infrastructure.specialists.enterprise_research import (
+    from agentic_concierge.infrastructure.specialists.enterprise_research import (
         build_enterprise_research_pack,
     )
 
@@ -179,16 +179,16 @@ async def test_cross_run_search_finds_entries_in_index(tmp_path: Path):
 
 
 def test_enterprise_search_prompt_routes_to_enterprise_research():
-    from agent_fabric.config.schema import DEFAULT_CONFIG
-    from agent_fabric.application.recruit import recruit_specialist
+    from agentic_concierge.config.schema import DEFAULT_CONFIG
+    from agentic_concierge.application.recruit import recruit_specialist
 
     result = recruit_specialist("search confluence for supply management policies", DEFAULT_CONFIG)
     assert "enterprise_research" in result.specialist_ids
 
 
 def test_github_issue_prompt_routes_to_enterprise_research():
-    from agent_fabric.config.schema import DEFAULT_CONFIG
-    from agent_fabric.application.recruit import recruit_specialist
+    from agentic_concierge.config.schema import DEFAULT_CONFIG
+    from agentic_concierge.application.recruit import recruit_specialist
 
     result = recruit_specialist("find all github issues related to authentication", DEFAULT_CONFIG)
     assert "enterprise_research" in result.specialist_ids

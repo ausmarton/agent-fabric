@@ -6,14 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_fabric.infrastructure.llm_discovery import (
+from agentic_concierge.infrastructure.llm_discovery import (
     _is_ollama_chat_capable,
     _ollama_model_name,
     discover_ollama_models,
     resolve_llm,
     select_model,
 )
-from agent_fabric.config.schema import DEFAULT_CONFIG
+from agentic_concierge.config.schema import DEFAULT_CONFIG
 
 
 @pytest.mark.parametrize("model,expected", [
@@ -47,8 +47,8 @@ def test_resolve_llm_filters_embedding_models():
         {"name": "bge-m3:latest", "model": "bge-m3:latest", "details": {"family": "bge-m3"}},
         {"name": "qwen2.5:7b", "model": "qwen2.5:7b", "details": {"family": "qwen2.5", "parameter_size": "7B"}},
     ]
-    with patch("agent_fabric.infrastructure.llm_discovery.discover_ollama_models", return_value=models):
-        with patch("agent_fabric.infrastructure.llm_bootstrap.ensure_llm_available", return_value=True):
+    with patch("agentic_concierge.infrastructure.llm_discovery.discover_ollama_models", return_value=models):
+        with patch("agentic_concierge.infrastructure.llm_bootstrap.ensure_llm_available", return_value=True):
             resolved = resolve_llm(DEFAULT_CONFIG, "quality")
     assert resolved.model != "bge-m3:latest"
     assert resolved.model == "qwen2.5:7b"

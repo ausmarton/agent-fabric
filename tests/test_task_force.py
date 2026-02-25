@@ -15,14 +15,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agent_fabric.application.execute_task import execute_task
-from agent_fabric.application.recruit import RecruitmentResult, recruit_specialist, _greedy_select_specialists
-from agent_fabric.config import DEFAULT_CONFIG, FabricConfig, load_config
-from agent_fabric.config.schema import SpecialistConfig, ModelConfig
-from agent_fabric.domain import LLMResponse, Task, ToolCallRequest
-from agent_fabric.infrastructure.ollama import OllamaChatClient
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
-from agent_fabric.infrastructure.workspace import FileSystemRunRepository
+from agentic_concierge.application.execute_task import execute_task
+from agentic_concierge.application.recruit import RecruitmentResult, recruit_specialist, _greedy_select_specialists
+from agentic_concierge.config import DEFAULT_CONFIG, ConciergeConfig, load_config
+from agentic_concierge.config.schema import SpecialistConfig, ModelConfig
+from agentic_concierge.domain import LLMResponse, Task, ToolCallRequest
+from agentic_concierge.infrastructure.ollama import OllamaChatClient
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry
+from agentic_concierge.infrastructure.workspace import FileSystemRunRepository
 
 
 # ---------------------------------------------------------------------------

@@ -37,4 +37,4 @@ We build **for Ollama** from scratch: Ollama is our local inference backend, not
 
 ## Ollama: what we use
 
-We **use Ollama** for local inference. Default config points at `http://localhost:11434/v1` and Ollama model names (e.g. `qwen2.5:7b`, `qwen2.5:14b`). No extra config needed: install Ollama, `ollama serve`, `ollama pull qwen2.5:7b`, then run the fabric. To use another backend (e.g. llama.cpp), override with `FABRIC_CONFIG_PATH` and a config that points at that server.
+We **use Ollama** for local inference. Default config points at `http://localhost:11434/v1` and Ollama model names (e.g. `qwen2.5:7b`, `qwen2.5:14b`). No extra config needed: install Ollama, `ollama serve`, `ollama pull qwen2.5:7b`, then run the fabric. To use another backend (e.g. llama.cpp), override with `CONCIERGE_CONFIG_PATH` and a config that points at that server.

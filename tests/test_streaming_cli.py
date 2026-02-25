@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from agent_fabric.interfaces.cli import _render_stream_event, _result_summary, app
+from agentic_concierge.interfaces.cli import _render_stream_event, _result_summary, app
 
 
 runner = CliRunner()
@@ -73,7 +73,7 @@ def _render(kind, data=None, step=None):
 
 def test_render_recruitment():
     lines = _render("recruitment", {"specialist_ids": ["engineering"], "required_capabilities": ["code_execution"]})
-    assert any("engineering" in l for l in lines)
+    assert any("engineering" in line for line in lines)
 
 
 def test_render_llm_request():
@@ -83,43 +83,43 @@ def test_render_llm_request():
 
 def test_render_tool_call():
     lines = _render("tool_call", {"tool": "write_file", "args": {"path": "app.py"}}, step="step_0")
-    assert any("write_file" in l for l in lines)
+    assert any("write_file" in line for line in lines)
 
 
 def test_render_tool_result_success():
     lines = _render("tool_result", {"tool": "write_file", "result": {"bytes": 42, "path": "app.py"}})
-    assert any("write_file" in l for l in lines)
-    assert any("42" in l for l in lines)
+    assert any("write_file" in line for line in lines)
+    assert any("42" in line for line in lines)
 
 
 def test_render_tool_result_error():
     lines = _render("tool_result", {"tool": "write_file", "result": {"error": "permission_denied", "message": "use relative path"}})
-    assert any("write_file" in l for l in lines)
+    assert any("write_file" in line for line in lines)
 
 
 def test_render_tool_error():
     lines = _render("tool_error", {"tool": "shell", "error_type": "permission", "error_message": "disallowed"})
-    assert any("shell" in l for l in lines)
+    assert any("shell" in line for line in lines)
 
 
 def test_render_security_event():
     lines = _render("security_event", {"error_message": "path escape"})
-    assert any("sandbox" in l.lower() for l in lines)
+    assert any("sandbox" in line.lower() for line in lines)
 
 
 def test_render_corrective_reprompt():
     lines = _render("corrective_reprompt", {"attempt": 1, "max_retries": 2})
-    assert any("re-prompt" in l or "reprompt" in l.lower() for l in lines)
+    assert any("re-prompt" in line or "reprompt" in line.lower() for line in lines)
 
 
 def test_render_cloud_fallback():
     lines = _render("cloud_fallback", {"reason": "no_tool_calls", "cloud_model": "gpt-4o"})
-    assert any("cloud" in l.lower() or "gpt-4o" in l for l in lines)
+    assert any("cloud" in line.lower() or "gpt-4o" in line for line in lines)
 
 
 def test_render_pack_start():
     lines = _render("pack_start", {"specialist_id": "research"})
-    assert any("research" in l for l in lines)
+    assert any("research" in line for line in lines)
 
 
 def test_render_run_complete_no_output():
@@ -130,7 +130,7 @@ def test_render_run_complete_no_output():
 
 def test_render_run_error():
     lines = _render("_run_error_", {"error": "LLM unreachable"})
-    assert any("failed" in l.lower() or "error" in l.lower() for l in lines)
+    assert any("failed" in line.lower() or "error" in line.lower() for line in lines)
 
 
 # ---------------------------------------------------------------------------
@@ -140,8 +140,8 @@ def test_render_run_error():
 @pytest.mark.asyncio
 async def test_run_with_streaming_renders_events(tmp_path):
     """_run_with_streaming consumes events and returns the RunResult."""
-    from agent_fabric.domain import RunId, RunResult
-    from agent_fabric.interfaces.cli import _run_with_streaming
+    from agentic_concierge.domain import RunId, RunResult
+    from agentic_concierge.interfaces.cli import _run_with_streaming
 
     events_to_emit = [
         {"kind": "recruitment", "data": {"specialist_ids": ["engineering"], "required_capabilities": []}, "step": None},
@@ -170,7 +170,7 @@ async def test_run_with_streaming_renders_events(tmp_path):
     mock_model_cfg = MagicMock()
     task = MagicMock()
 
-    with patch("agent_fabric.interfaces.cli.execute_task", side_effect=_fake_execute):
+    with patch("agentic_concierge.interfaces.cli.execute_task", side_effect=_fake_execute):
         result = await _run_with_streaming(
             task, mock_chat, mock_repo, mock_registry, mock_config, mock_model_cfg
         )

@@ -1,4 +1,4 @@
-# agent-fabric: Capability Model
+# agentic-concierge: Capability Model
 
 **Purpose:** Reference for all defined capability IDs, which packs provide them, and how to extend the model.
 
@@ -54,7 +54,7 @@ runlog.jsonl  "recruitment" event        (always written at run start)
 
 ## Capability keywords (inference rules)
 
-Defined in `src/agent_fabric/config/capabilities.py → CAPABILITY_KEYWORDS`.
+Defined in `src/agentic_concierge/config/capabilities.py → CAPABILITY_KEYWORDS`.
 A capability is inferred when **any** of its keywords appears as a substring
 of the lowercased task prompt.
 
@@ -72,12 +72,12 @@ of the lowercased task prompt.
 ## Adding a new capability
 
 1. **Define the capability ID** — add it to `CAPABILITY_KEYWORDS` in
-   `src/agent_fabric/config/capabilities.py` with trigger keywords.
+   `src/agentic_concierge/config/capabilities.py` with trigger keywords.
 
 2. **Declare it on the pack** — add the capability ID to `capabilities` in
    `SpecialistConfig` for every pack that can provide it.  For built-in packs
-   this is `DEFAULT_CONFIG` in `src/agent_fabric/config/schema.py`; for custom
-   packs set it in your `FABRIC_CONFIG_PATH` YAML.
+   this is `DEFAULT_CONFIG` in `src/agentic_concierge/config/schema.py`; for custom
+   packs set it in your `CONCIERGE_CONFIG_PATH` YAML.
 
 3. **Write a test** — add a case to `tests/test_capabilities.py` verifying that
    the new keyword infers the capability and routes to the correct pack.
@@ -89,7 +89,7 @@ of the lowercased task prompt.
 Declare the pack's capabilities in `SpecialistConfig.capabilities`:
 
 ```yaml
-# FABRIC_CONFIG_PATH YAML example
+# CONCIERGE_CONFIG_PATH YAML example
 specialists:
   data_analysis:
     description: "Analyse datasets, produce charts, run statistical models."

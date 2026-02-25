@@ -4,7 +4,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from agent_fabric.infrastructure.llm_bootstrap import (
+from agentic_concierge.infrastructure.llm_bootstrap import (
     _check_reachable,
     _health_url,
     ensure_llm_available,
@@ -54,8 +54,8 @@ def test_ensure_llm_available_timeout_raises():
 
 def test_ensure_llm_available_starts_then_reachable():
     """When unreachable then start_cmd runs, ensure_llm_available returns True once server is reachable (mocked)."""
-    with patch("agent_fabric.infrastructure.llm_bootstrap._check_reachable", side_effect=[False, True]):
-        with patch("agent_fabric.infrastructure.llm_bootstrap.subprocess.Popen", return_value=MagicMock()):
+    with patch("agentic_concierge.infrastructure.llm_bootstrap._check_reachable", side_effect=[False, True]):
+        with patch("agentic_concierge.infrastructure.llm_bootstrap.subprocess.Popen", return_value=MagicMock()):
             result = ensure_llm_available(
                 "http://127.0.0.1:31999/",
                 start_cmd=["ollama", "serve"],

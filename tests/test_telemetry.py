@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_fabric.infrastructure.telemetry import (
+from agentic_concierge.infrastructure.telemetry import (
     _NOOP_TRACER,
     _NoOpSpan,
     _NoOpTracer,
@@ -16,15 +16,15 @@ from agent_fabric.infrastructure.telemetry import (
     reset_for_testing,
     setup_telemetry,
 )
-from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig, TelemetryConfig
+from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig, TelemetryConfig
 
 
 # ---------------------------------------------------------------------------
-# Minimal FabricConfig factory helpers
+# Minimal ConciergeConfig factory helpers
 # ---------------------------------------------------------------------------
 
-def _minimal_config(telemetry: TelemetryConfig | None = None) -> FabricConfig:
-    return FabricConfig(
+def _minimal_config(telemetry: TelemetryConfig | None = None) -> ConciergeConfig:
+    return ConciergeConfig(
         models={"quality": ModelConfig(base_url="http://localhost:11434/v1", model="test")},
         specialists={"engineering": SpecialistConfig(description="d", workflow="engineering")},
         telemetry=telemetry,
@@ -119,7 +119,7 @@ def test_spans_emitted_via_in_memory_exporter():
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     # Get a tracer directly from our local provider (avoids global TracerProvider override
     # restrictions — OTEL warns and silently ignores set_tracer_provider() if already set).
-    import agent_fabric.infrastructure.telemetry as tel_mod
+    import agentic_concierge.infrastructure.telemetry as tel_mod
     tel_mod._tracer = provider.get_tracer("test")
 
     tracer = get_tracer()
@@ -143,7 +143,7 @@ def test_nested_spans_parent_child():
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
 
-    import agent_fabric.infrastructure.telemetry as tel_mod
+    import agentic_concierge.infrastructure.telemetry as tel_mod
     tel_mod._tracer = provider.get_tracer("test")
 
     tracer = get_tracer()
@@ -166,13 +166,13 @@ def test_nested_spans_parent_child():
 def test_telemetry_config_defaults():
     cfg = TelemetryConfig()
     assert cfg.enabled is False
-    assert cfg.service_name == "agent-fabric"
+    assert cfg.service_name == "agentic-concierge"
     assert cfg.exporter == "none"
     assert cfg.otlp_endpoint == ""
 
 
 def test_telemetry_config_fabric_config_optional():
-    """FabricConfig with no telemetry key is valid."""
+    """ConciergeConfig with no telemetry key is valid."""
     config = _minimal_config(telemetry=None)
     assert config.telemetry is None
 

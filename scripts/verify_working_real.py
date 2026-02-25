@@ -4,7 +4,7 @@ Verify the fabric with a REAL LLM: run a task against the configured server,
 then check that the model actually used tools and produced artifacts.
 
 Uses Ollama by default. Run: ollama serve && ollama pull qwen2.5:7b (or any model).
-To use another backend, set FABRIC_CONFIG_PATH to a config that points at it.
+To use another backend, set CONCIERGE_CONFIG_PATH to a config that points at it.
 
 Run from repo root: python scripts/verify_working_real.py
 """
@@ -18,21 +18,21 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-from agent_fabric.application.execute_task import execute_task
-from agent_fabric.config import load_config
-from agent_fabric.domain import Task
-from agent_fabric.infrastructure.llm_discovery import resolve_llm
-from agent_fabric.infrastructure.ollama import OllamaChatClient
-from agent_fabric.infrastructure.workspace import FileSystemRunRepository
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
+from agentic_concierge.application.execute_task import execute_task
+from agentic_concierge.config import load_config
+from agentic_concierge.domain import Task
+from agentic_concierge.infrastructure.llm_discovery import resolve_llm
+from agentic_concierge.infrastructure.ollama import OllamaChatClient
+from agentic_concierge.infrastructure.workspace import FileSystemRunRepository
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry
 
 
 def main():
-    os.environ.setdefault("FABRIC_WORKSPACE", os.path.join(REPO_ROOT, ".fabric"))
+    os.environ.setdefault("CONCIERGE_WORKSPACE", os.path.join(REPO_ROOT, ".concierge"))
     cfg = load_config()
     model_key = "quality"
     if model_key not in cfg.models:
-        print("ERROR: Config has no 'quality' model. Check FABRIC_CONFIG_PATH or defaults.")
+        print("ERROR: Config has no 'quality' model. Check CONCIERGE_CONFIG_PATH or defaults.")
         return 1
 
     try:
@@ -51,7 +51,7 @@ def main():
         api_key=resolved.model_config.api_key,
         timeout_s=resolved.model_config.timeout_s,
     )
-    run_repository = FileSystemRunRepository(workspace_root=os.environ["FABRIC_WORKSPACE"])
+    run_repository = FileSystemRunRepository(workspace_root=os.environ["CONCIERGE_WORKSPACE"])
     specialist_registry = ConfigSpecialistRegistry(cfg)
     task = Task(
         prompt=(

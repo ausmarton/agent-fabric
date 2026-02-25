@@ -1,4 +1,4 @@
-"""Pytest fixtures and helpers for agent-fabric tests."""
+"""Pytest fixtures and helpers for agentic-concierge tests."""
 from __future__ import annotations
 
 import os
@@ -17,9 +17,9 @@ def real_llm_reachable():
     available model on the server (which may differ from the configured default
     if that model hasn't been pulled).
     """
-    from agent_fabric.config import load_config
-    from agent_fabric.infrastructure.llm_bootstrap import _check_reachable
-    from agent_fabric.infrastructure.llm_discovery import resolve_llm
+    from agentic_concierge.config import load_config
+    from agentic_concierge.infrastructure.llm_bootstrap import _check_reachable
+    from agentic_concierge.infrastructure.llm_discovery import resolve_llm
 
     cfg = load_config()
     model_cfg = cfg.models.get("quality") or cfg.models.get("fast")
@@ -47,7 +47,7 @@ def skip_if_no_real_llm():
 
 
 # Optional: env to force skipping real-LLM tests even when server is up (e.g. slow CI)
-SKIP_REAL_LLM = os.environ.get("FABRIC_SKIP_REAL_LLM", "").lower() in ("1", "true", "yes")
+SKIP_REAL_LLM = os.environ.get("CONCIERGE_SKIP_REAL_LLM", "").lower() in ("1", "true", "yes")
 
 
 @pytest.fixture(autouse=True)
@@ -55,11 +55,11 @@ def _reset_config_cache():
     """Clear the load_config LRU cache and reset _env before (and after) every test.
 
     This ensures each test gets a fresh config load, so monkeypatching
-    FABRIC_CONFIG_PATH or _env works correctly without tests bleeding into each other.
+    CONCIERGE_CONFIG_PATH or _env works correctly without tests bleeding into each other.
     Existing tests that call ``monkeypatch.setattr(config_loader, "_env", None)``
     continue to work unchanged (those resets are now redundant but harmless).
     """
-    from agent_fabric.config import loader as config_loader
+    from agentic_concierge.config import loader as config_loader
     config_loader.load_config.cache_clear()
     config_loader._env = None
     yield

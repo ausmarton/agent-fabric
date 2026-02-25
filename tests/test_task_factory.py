@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from agent_fabric.domain import build_task
+from agentic_concierge.domain import build_task
 
 
 @pytest.mark.parametrize("pack,expected_specialist_id", [

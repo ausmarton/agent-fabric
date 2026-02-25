@@ -1,10 +1,10 @@
-# agent-fabric: Requirements and Validation
+# agentic-concierge: Requirements and Validation
 
 This document defines the current MVP (Phase 1). The long-term vision—use cases, principles, phasing, and alignment with the repo—is in [docs/VISION.md](docs/VISION.md).
 
 ## Purpose
 
-agent-fabric is a **quality-first agent fabric** for local inference, **built for Ollama**:
+agentic-concierge is a **quality-first agent fabric** for local inference, **built for Ollama**:
 
 1. **Routes** user prompts to a specialist pack (engineering or research) via keyword-based routing, or uses an explicitly chosen pack.
 2. **Runs** a workflow that drives an LLM with tools in a loop until the task is completed or a step limit is reached.
@@ -19,8 +19,8 @@ We **use Ollama** for local inference by default (default config points at local
 ### FR1: CLI and API
 
 - **FR1.1** The CLI shall provide:
-  - `fabric run PROMPT` to run a task (with optional `--pack`, `--model-key`, `--no-network-allowed`).
-  - `fabric serve` to run the HTTP API.
+  - `concierge run PROMPT` to run a task (with optional `--pack`, `--model-key`, `--no-network-allowed`).
+  - `concierge serve` to run the HTTP API.
 - **FR1.2** The HTTP API shall expose:
   - `GET /health` returning `{"ok": true}`.
   - `POST /run` accepting `{ "prompt", "pack?", "model_key?", "network_allowed?" }` and returning the same result shape as the CLI.
@@ -46,7 +46,7 @@ We **use Ollama** for local inference by default (default config points at local
 ### FR4: Configuration
 
 - **FR4.1** Default configuration shall use **Ollama** (base_url http://localhost:11434/v1, models e.g. qwen2.5:7b / qwen2.5:14b) and define two model profiles (`fast`, `quality`) and the two packs with their workflows and keywords. The fabric shall **ensure the local LLM is available by default** (check reachability; if unreachable, start via `local_llm_start_cmd` and wait for readiness); config may set `local_llm_ensure_available: false` to opt out.
-- **FR4.2** If `FABRIC_CONFIG_PATH` is set to a valid file path, that file (JSON) shall be loaded and used as the fabric config; otherwise defaults are used.
+- **FR4.2** If `CONCIERGE_CONFIG_PATH` is set to a valid file path, that file (JSON) shall be loaded and used as the fabric config; otherwise defaults are used.
 
 ### FR5: Quality and safety
 
@@ -66,11 +66,11 @@ We **use Ollama** for local inference by default (default config points at local
 ### Manual validation (no LLM required for basic checks)
 
 1. **CLI help**
-   - `fabric --help`, `fabric run --help`, `fabric serve --help` run without error.
+   - `concierge --help`, `concierge run --help`, `concierge serve --help` run without error.
 
 2. **Routing**
-   - With no server running, `fabric run "build a small API"` shall create a run dir under `.fabric/runs/` and fail at the first LLM call (connection error). The chosen pack in logs/metadata should be engineering.
-   - `fabric run "systematic review of X" --pack research` shall use research pack and fail at first LLM call; run dir and runlog.jsonl shall exist.
+   - With no server running, `concierge run "build a small API"` shall create a run dir under `.concierge/runs/` and fail at the first LLM call (connection error). The chosen pack in logs/metadata should be engineering.
+   - `concierge run "systematic review of X" --pack research` shall use research pack and fail at first LLM call; run dir and runlog.jsonl shall exist.
 
 3. **Run output structure**
    - After any run (even failed), the run directory shall contain:
@@ -78,19 +78,19 @@ We **use Ollama** for local inference by default (default config points at local
      - `workspace/` directory.
 
 4. **API**
-   - `fabric serve` and `curl http://127.0.0.1:8787/health` shall return `{"ok": true}`.
+   - `concierge serve` and `curl http://127.0.0.1:8787/health` shall return `{"ok": true}`.
 
 ### End-to-end validation (real LLM server required)
 
 5. **Engineering (real verification)**
-   - Use the default Ollama server (`ollama serve` and `ollama pull qwen2.5:7b`), or any OpenAI-compatible server (set `FABRIC_CONFIG_PATH` to a config with the correct `base_url` and `model`).
+   - Use the default Ollama server (`ollama serve` and `ollama pull qwen2.5:7b`), or any OpenAI-compatible server (set `CONCIERGE_CONFIG_PATH` to a config with the correct `base_url` and `model`).
    - Run: `python scripts/verify_working_real.py`
    - Expect: script exits 0; runlog contains **tool_call** and **tool_result** (model actually used tools); run completes with a final result. This confirms the fabric performs autonomously (uses tools and produces artifacts), not just that mocks work.
-   - Alternatively, run manually: `fabric run "Create a tiny FastAPI app with /health and unit tests, runnable with uvicorn." --pack engineering` and inspect `.fabric/runs/<id>/runlog.jsonl` and `workspace/`.
+   - Alternatively, run manually: `concierge run "Create a tiny FastAPI app with /health and unit tests, runnable with uvicorn." --pack engineering` and inspect `.concierge/runs/<id>/runlog.jsonl` and `workspace/`.
 
 6. **Research**
    - Same server:
-     - `fabric run "Mini systematic review of post-quantum crypto performance." --pack research`
+     - `concierge run "Mini systematic review of post-quantum crypto performance." --pack research`
    - Expect: run uses web_search/fetch_url (if network allowed), writes files to workspace, ends with `action: "final"` and deliverables/citations.
 
 ### Automated tests
@@ -104,7 +104,7 @@ pytest tests/ -v
 **Use the right technique for the job:** Mocked and unit tests give fast feedback and validate wiring, contracts, and behaviour in isolation. For **integration and "everything works together"** we rely on **at least a couple of E2E tests that run against a real LLM**. Those real-LLM E2E tests are essential to ensure the full stack is integrated and working as expected.
 
 - **Full validation (required to assert system works):** Run with a real LLM so the real-LLM E2E tests run and pass (no skips). Use `python scripts/validate_full.py`; all 42 tests must run. If any are skipped, validation fails.
-- **Fast CI:** `FABRIC_SKIP_REAL_LLM=1 pytest tests/ -v` runs 38 tests and skips the 4 real-LLM E2E tests. Use for quick feedback on wiring and unit/integration behaviour; it does not replace the need to run real-LLM E2E for integration assurance.
+- **Fast CI:** `CONCIERGE_SKIP_REAL_LLM=1 pytest tests/ -v` runs 38 tests and skips the 4 real-LLM E2E tests. Use for quick feedback on wiring and unit/integration behaviour; it does not replace the need to run real-LLM E2E for integration assurance.
 
 All Phase 1 checks are automated. With a real LLM: router, sandbox, config, packs, integration, **engineering E2E with real LLM** (tool_call, tool_result, artifacts), **research E2E with real LLM**, **API POST /run with real LLM**, and **scripts/verify_working_real.py** run as part of pytest. Local LLM bootstrap (start when unreachable) is tested with mocks in fast CI; with full validation the real bootstrap can be used to start the LLM before running tests.
 

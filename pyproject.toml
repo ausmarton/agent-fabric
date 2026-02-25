@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-fabric"
+name = "agentic-concierge"
 dynamic = ["version"]
-description = "A portable, quality-first agent fabric (router + supervisor + specialist packs) that runs on local OpenAI-compatible LLM endpoints."
+description = "An agentic concierge that spawns ephemeral specialist teams to tackle tasks — capability-based routing, multi-pack task forces, and native tool-calling on local or cloud LLM endpoints."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -48,13 +48,13 @@ otel = ["opentelemetry-api>=1.24", "opentelemetry-sdk>=1.24"]
 mcp = ["mcp>=1.0"]
 
 [project.scripts]
-fabric = "agent_fabric.interfaces.cli:app"
+concierge = "agentic_concierge.interfaces.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/ausmarton/agent-fabric"
-Repository = "https://github.com/ausmarton/agent-fabric"
-Issues = "https://github.com/ausmarton/agent-fabric/issues"
-Changelog = "https://github.com/ausmarton/agent-fabric/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/ausmarton/agentic-concierge"
+Repository = "https://github.com/ausmarton/agentic-concierge"
+Issues = "https://github.com/ausmarton/agentic-concierge/issues"
+Changelog = "https://github.com/ausmarton/agentic-concierge/blob/main/CHANGELOG.md"
 
 [tool.setuptools_scm]
 # Version is derived from the nearest git tag (e.g. v0.1.0 → 0.1.0).
@@ -65,7 +65,7 @@ fallback_version = "0.0.0.dev0"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["agent_fabric*"]
+include = ["agentic_concierge*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -86,11 +86,12 @@ select = [
 ]
 ignore = [
   "E501",  # line too long — not enforced at this time
+  "E741",  # ambiguous variable name — pre-existing in test helpers
   "F401",  # unused imports — some are intentional re-exports
 ]
 
 [tool.coverage.run]
-source = ["src/agent_fabric"]
+source = ["src/agentic_concierge"]
 omit = ["tests/*", "scripts/*"]
 
 [tool.coverage.report]

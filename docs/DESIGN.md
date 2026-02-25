@@ -28,29 +28,29 @@ The prototype had: supervisor + router + per-pack "workflow" files that each con
 
 ### 2.1 What should the product be called?
 
-The **product name** is whatever you want users and the repo to refer to. It doesn't have to be "agent-fabric." Possibilities: **fabric** (short), **agent-fabric** (explicit), **task-fabric** (task-focused), **orchestrator** (control-plane). Pick one that fits how you talk about the product.
+The **product name** is whatever you want users and the repo to refer to. It doesn't have to be "agentic-concierge." Possibilities: **fabric** (short), **agentic-concierge** (explicit), **task-fabric** (task-focused), **orchestrator** (control-plane). Pick one that fits how you talk about the product.
 
 ### 2.2 Repo root directory name
 
-Convention: the **repo root folder** is the **project name**. Hyphens in folder names are normal (`agent-fabric`). So **repo root name = project name** is the right way around. The name should come from "what is this project?" not from what's already there.
+Convention: the **repo root folder** is the **project name**. Hyphens in folder names are normal (`agentic-concierge`). So **repo root name = project name** is the right way around. The name should come from "what is this project?" not from what's already there.
 
 ### 2.3 Package directory inside the repo
 
-In Python, the **importable package** is a directory; its name becomes the import name. **Underscores** are standard (hyphens would make `import agent-fabric` invalid). So you have: **repo root** (any name, often hyphenated) and **one main package directory** (Python-safe, usually underscores). They don't have to match.
+In Python, the **importable package** is a directory; its name becomes the import name. **Underscores** are standard (hyphens would make `import agentic-concierge` invalid). So you have: **repo root** (any name, often hyphenated) and **one main package directory** (Python-safe, usually underscores). They don't have to match.
 
-### 2.4 Is "repo agent-fabric/ with package agent_fabric/" the right way?
+### 2.4 Is "repo agentic-concierge/ with package agentic_concierge/" the right way?
 
-- **Good:** Names align (agent-fabric → agent_fabric). Clear.
-- **Redundant:** Root is `agent-fabric`, main dir inside is `agent_fabric`—repetitive. Not wrong, but not minimal.
-- **Alternatives:** Repo `fabric/` + package `fabric/` (short; PyPI has a "fabric" so distribution name might differ). Or repo `agent-fabric/` + package `fabric/` (no repetition, short import).
+- **Good:** Names align (agentic-concierge → agentic_concierge). Clear.
+- **Redundant:** Root is `agentic-concierge`, main dir inside is `agentic_concierge`—repetitive. Not wrong, but not minimal.
+- **Alternatives:** Repo `fabric/` + package `fabric/` (short; PyPI has a "fabric" so distribution name might differ). Or repo `agentic-concierge/` + package `fabric/` (no repetition, short import).
 
-**Conclusion:** Repo `agent-fabric` and package `agent_fabric` is **valid and conventional**. It is **not** the only right way. Best depends on whether you prefer name alignment or shorter layout.
+**Conclusion:** Repo `agentic-concierge` and package `agentic_concierge` is **valid and conventional**. It is **not** the only right way. Best depends on whether you prefer name alignment or shorter layout.
 
 ### 2.5 Recommendation
 
 1. **Choose the product name first.** Use it for the repo root.
-2. **Then choose the Python package name:** match project (e.g. `agent_fabric`) for alignment, or shorter (e.g. `fabric`) to avoid redundancy.
-3. **Current state:** Repo `agent-fabric`, package `agent_fabric` is consistent. If you prefer different names, rename; the *structure* (one package dir, tests, docs, scripts at top level) stays the same.
+2. **Then choose the Python package name:** match project (e.g. `agentic_concierge`) for alignment, or shorter (e.g. `fabric`) to avoid redundancy.
+3. **Current state:** Repo `agentic-concierge`, package `agentic_concierge` is consistent. If you prefer different names, rename; the *structure* (one package dir, tests, docs, scripts at top level) stays the same.
 
 ---
 
@@ -68,11 +68,11 @@ A single-product Python repo needs: one top-level package, tests/, docs/, script
   README.md
 ```
 
-**What we have:** Repo root `agent-fabric/`, package **`agent_fabric`** under **`src/agent_fabric/`** (src layout), plus **`examples/`** (example config). Consistent naming: one name (agent-fabric / agent_fabric) in two spellings; single source tree under `src`.
+**What we have:** Repo root `agentic-concierge/`, package **`agentic_concierge`** under **`src/agentic_concierge/`** (src layout), plus **`examples/`** (example config). Consistent naming: one name (agentic-concierge / agentic_concierge) in two spellings; single source tree under `src`.
 
 ---
 
-## 4. Package layout (inside src/agent_fabric)
+## 4. Package layout (inside src/agentic_concierge)
 
 From first principles we need:
 
@@ -85,7 +85,7 @@ From first principles we need:
 So the layout is:
 
 ```
-src/agent_fabric/
+src/agentic_concierge/
   domain/           # Task, RunId, RunResult; errors
   application/      # execute_task, recruit, ports
   config/           # schema, loader
@@ -112,13 +112,13 @@ No "router", "supervisor", "workflows", or "packs" at top level—those were pro
 |----------|--------|
 | Is the design fit for purpose? | Yes: one use case (execute task), recruit → run → tool loop, ports for I/O, config at the edge. |
 | Designed without the prototype? | Yes: single loop, no duplicated workflows, no supervisor/router; recruitment and execution are explicit. |
-| Product/repo/package name? | Repo `agent-fabric` (project); package **`agent_fabric`** under `src/agent_fabric/` (consistent: same name, hyphen vs underscore). |
+| Product/repo/package name? | Repo `agentic-concierge` (project); package **`agentic_concierge`** under `src/agentic_concierge/` (consistent: same name, hyphen vs underscore). |
 | Top-level directory structure? | Correct: one package dir, tests, docs, scripts, pyproject at root. |
 | Clean slate? | Legacy code removed; directory structure reflects only this design. |
 
 **Conventions we follow (consistent naming, clear structure):**
-- **Src layout:** All package code under `src/agent_fabric/`; tests and docs import the installed package. Avoids accidental imports from repo root.
-- **Consistent name:** Project and package use the same name—repo `agent-fabric`, package `agent_fabric` (hyphen vs underscore for Python).
+- **Src layout:** All package code under `src/agentic_concierge/`; tests and docs import the installed package. Avoids accidental imports from repo root.
+- **Consistent name:** Project and package use the same name—repo `agentic-concierge`, package `agentic_concierge` (hyphen vs underscore for Python).
 - **Example config:** `examples/` at repo root (e.g. `examples/ollama.json`), not a top-level `config/` that could be confused with the package's config module.
 - **One tool loop, one recruit:** No per-pack "workflow" files; specialists supply prompt + tools only.
 

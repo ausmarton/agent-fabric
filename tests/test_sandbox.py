@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from agent_fabric.infrastructure.tools.sandbox import SandboxPolicy, safe_path
+from agentic_concierge.infrastructure.tools.sandbox import SandboxPolicy, safe_path
 
 
 def test_safe_path_within_root():

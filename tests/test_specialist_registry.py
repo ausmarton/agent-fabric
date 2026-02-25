@@ -13,11 +13,11 @@ from typing import Any, Dict, List
 
 import pytest
 
-from agent_fabric.application.ports import SpecialistPack
-from agent_fabric.config import load_config
-from agent_fabric.config.schema import FabricConfig, SpecialistConfig
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
-from agent_fabric.infrastructure.specialists.registry import _load_builder
+from agentic_concierge.application.ports import SpecialistPack
+from agentic_concierge.config import load_config
+from agentic_concierge.config.schema import ConciergeConfig, SpecialistConfig
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry
+from agentic_concierge.infrastructure.specialists.registry import _load_builder
 
 
 # ---------------------------------------------------------------------------
@@ -48,10 +48,10 @@ def build_stub_pack(workspace_path: str, network_allowed: bool) -> SpecialistPac
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_config_with_specialist(specialist_id: str, builder_path: str | None) -> FabricConfig:
-    """Return a FabricConfig that adds a custom specialist to the defaults."""
+def _make_config_with_specialist(specialist_id: str, builder_path: str | None) -> ConciergeConfig:
+    """Return a ConciergeConfig that adds a custom specialist to the defaults."""
     base = load_config()
-    return FabricConfig(
+    return ConciergeConfig(
         models=base.models,
         specialists={
             **base.specialists,
@@ -103,7 +103,7 @@ def test_custom_pack_loaded_from_builder_field():
 def test_builder_field_overrides_builtin_for_same_id():
     """builder= on a built-in specialist id uses the custom factory, not the built-in."""
     base = load_config()
-    config = FabricConfig(
+    config = ConciergeConfig(
         models=base.models,
         specialists={
             "engineering": SpecialistConfig(
@@ -183,7 +183,7 @@ def test_load_builder_raises_on_nonexistent_module():
 def test_load_builder_raises_on_missing_function():
     """_load_builder raises ImportError when the function doesn't exist in the module."""
     with pytest.raises(ImportError):
-        _load_builder("agent_fabric.config:_no_such_function_xyz")
+        _load_builder("agentic_concierge.config:_no_such_function_xyz")
 
 
 # ---------------------------------------------------------------------------

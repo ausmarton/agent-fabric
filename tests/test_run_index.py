@@ -14,13 +14,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from agent_fabric.infrastructure.workspace.run_index import (
+from agentic_concierge.infrastructure.workspace.run_index import (
     RunIndexEntry,
     append_to_index,
     search_index,
     _entry_from_dict,
 )
-from agent_fabric.interfaces.cli import app
+from agentic_concierge.interfaces.cli import app
 
 
 # ---------------------------------------------------------------------------
@@ -179,12 +179,12 @@ def test_logs_search_cli_shows_matching_runs(tmp_path):
 @pytest.mark.asyncio
 async def test_execute_task_appends_to_index(tmp_path):
     """execute_task appends one entry to run_index.jsonl after a successful run."""
-    from agent_fabric.application.execute_task import execute_task
-    from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig
-    from agent_fabric.domain import Task, LLMResponse, ToolCallRequest, RunResult
+    from agentic_concierge.application.execute_task import execute_task
+    from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig
+    from agentic_concierge.domain import Task, LLMResponse, ToolCallRequest, RunResult
 
     # Minimal config — must include "quality" key (execute_task falls back to it)
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"quality": ModelConfig(base_url="http://localhost:11434/v1", model="test")},
         specialists={
             "engineering": SpecialistConfig(description="eng", keywords=[], workflow="engineering")
@@ -228,7 +228,7 @@ async def test_execute_task_appends_to_index(tmp_path):
 
     class _Repo:
         def create_run(self):
-            from agent_fabric.domain import RunId
+            from agentic_concierge.domain import RunId
             return RunId("test-run"), run_dir_path, str(tmp_path / "workspace")
         def append_event(self, *a, **kw): pass
 

@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_fabric.interfaces.http_api import app
+from agentic_concierge.interfaces.http_api import app
 
 
 def _write_runlog(run_dir: str, events: list) -> None:
@@ -32,7 +32,7 @@ def _write_runlog(run_dir: str, events: list) -> None:
 def test_run_status_404_when_not_found():
     """Returns 404 for an unknown run_id."""
     with tempfile.TemporaryDirectory() as workspace_root:
-        with patch("agent_fabric.interfaces.http_api._workspace_root", return_value=workspace_root):
+        with patch("agentic_concierge.interfaces.http_api._workspace_root", return_value=workspace_root):
             client = TestClient(app)
             response = client.get("/runs/nonexistent-run-id/status")
         assert response.status_code == 404
@@ -51,7 +51,7 @@ def test_run_status_completed_when_run_complete_event_present():
         ]
         _write_runlog(str(run_dir), events)
 
-        with patch("agent_fabric.interfaces.http_api._workspace_root", return_value=workspace_root):
+        with patch("agentic_concierge.interfaces.http_api._workspace_root", return_value=workspace_root):
             client = TestClient(app)
             response = client.get(f"/runs/{run_id}/status")
 
@@ -75,7 +75,7 @@ def test_run_status_running_when_no_run_complete():
         ]
         _write_runlog(str(run_dir), events)
 
-        with patch("agent_fabric.interfaces.http_api._workspace_root", return_value=workspace_root):
+        with patch("agentic_concierge.interfaces.http_api._workspace_root", return_value=workspace_root):
             client = TestClient(app)
             response = client.get(f"/runs/{run_id}/status")
 
@@ -92,7 +92,7 @@ def test_run_status_running_when_empty_runlog():
         # Create empty runlog
         (run_dir / "runlog.jsonl").write_text("")
 
-        with patch("agent_fabric.interfaces.http_api._workspace_root", return_value=workspace_root):
+        with patch("agentic_concierge.interfaces.http_api._workspace_root", return_value=workspace_root):
             client = TestClient(app)
             response = client.get(f"/runs/{run_id}/status")
 
@@ -116,7 +116,7 @@ def test_run_status_includes_task_force_mode():
         ]
         _write_runlog(str(run_dir), events)
 
-        with patch("agent_fabric.interfaces.http_api._workspace_root", return_value=workspace_root):
+        with patch("agentic_concierge.interfaces.http_api._workspace_root", return_value=workspace_root):
             client = TestClient(app)
             response = client.get(f"/runs/{run_id}/status")
 
@@ -134,7 +134,7 @@ def test_run_status_run_dir_without_runlog_returns_running():
         run_dir.mkdir(parents=True)
         # No runlog.jsonl at all
 
-        with patch("agent_fabric.interfaces.http_api._workspace_root", return_value=workspace_root):
+        with patch("agentic_concierge.interfaces.http_api._workspace_root", return_value=workspace_root):
             client = TestClient(app)
             response = client.get(f"/runs/{run_id}/status")
 

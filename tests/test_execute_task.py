@@ -13,13 +13,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agent_fabric.application.execute_task import execute_task
-from agent_fabric.config import load_config
-from agent_fabric.domain import LLMResponse, RunResult, Task, ToolCallRequest
-from agent_fabric.infrastructure.ollama import OllamaChatClient
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
-from agent_fabric.infrastructure.specialists.base import BaseSpecialistPack
-from agent_fabric.infrastructure.workspace import FileSystemRunRepository
+from agentic_concierge.application.execute_task import execute_task
+from agentic_concierge.config import load_config
+from agentic_concierge.domain import LLMResponse, RunResult, Task, ToolCallRequest
+from agentic_concierge.infrastructure.ollama import OllamaChatClient
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry
+from agentic_concierge.infrastructure.specialists.base import BaseSpecialistPack
+from agentic_concierge.infrastructure.workspace import FileSystemRunRepository
 
 
 # ---------------------------------------------------------------------------

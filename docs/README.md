@@ -1,4 +1,4 @@
-# agent-fabric documentation
+# agentic-concierge documentation
 
 All docs live here and in the repo root. Use this index to find the right document for your purpose.
 

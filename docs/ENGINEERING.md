@@ -1,6 +1,6 @@
 # Engineering standards and practices
 
-We build agent-fabric from the ground up with consistent naming, clear organisation, and testability. Follow these standards for all new code.
+We build agentic-concierge from the ground up with consistent naming, clear organisation, and testability. Follow these standards for all new code.
 
 ---
 
@@ -14,7 +14,7 @@ We build agent-fabric from the ground up with consistent naming, clear organisat
 
 ### 1.2 Classes and types
 
-- **PascalCase** for all classes and typed dataclasses (e.g. `Run`, `RunId`, `OllamaChatClient`, `FabricConfig`).
+- **PascalCase** for all classes and typed dataclasses (e.g. `Run`, `RunId`, `OllamaChatClient`, `ConciergeConfig`).
 - **Domain entities** — nouns that match the ubiquitous language: `Task`, `Run`, `RunId`, `Capability`, `SpecialistId`, `ToolCall`, `ToolResult`.
 - **Ports (interfaces)** — role names: `ChatClient`, `RunRepository`, `ToolExecutor`, `SpecialistRegistry`.
 - **Infrastructure** — concrete adapter names: `OllamaChatClient`, `FileSystemRunRepository`.

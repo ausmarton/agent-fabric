@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import httpx
 import pytest
 
-from agent_fabric.config.schema import ModelConfig
-from agent_fabric.infrastructure.chat import build_chat_client
-from agent_fabric.infrastructure.chat.generic import GenericChatClient
-from agent_fabric.infrastructure.ollama.client import OllamaChatClient
+from agentic_concierge.config.schema import ModelConfig
+from agentic_concierge.infrastructure.chat import build_chat_client
+from agentic_concierge.infrastructure.chat.generic import GenericChatClient
+from agentic_concierge.infrastructure.ollama.client import OllamaChatClient
 
 
 # ---------------------------------------------------------------------------

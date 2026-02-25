@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import pytest
-from agent_fabric.application.recruit import (
+from agentic_concierge.application.recruit import (
     RecruitmentResult,
     infer_capabilities,
     recruit_specialist,
 )
-from agent_fabric.config import DEFAULT_CONFIG
-from agent_fabric.config.capabilities import CAPABILITY_KEYWORDS
+from agentic_concierge.config import DEFAULT_CONFIG
+from agentic_concierge.config.capabilities import CAPABILITY_KEYWORDS
 
 
 # ---------------------------------------------------------------------------

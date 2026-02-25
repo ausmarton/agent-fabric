@@ -40,9 +40,9 @@ for _k, _v in _make_mock_mcp_modules().items():
 
 
 # Now import after injection.
-from agent_fabric.config.schema import MCPServerConfig  # noqa: E402
-from agent_fabric.infrastructure.mcp.session import MCPSessionManager  # noqa: E402
-from agent_fabric.infrastructure.mcp.converter import mcp_tool_to_openai_def  # noqa: E402
+from agentic_concierge.config.schema import MCPServerConfig  # noqa: E402
+from agentic_concierge.infrastructure.mcp.session import MCPSessionManager  # noqa: E402
+from agentic_concierge.infrastructure.mcp.converter import mcp_tool_to_openai_def  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +123,10 @@ async def test_connect_stdio_calls_stdio_client():
     session_mock = _make_session_mock()
 
     with (
-        patch("agent_fabric.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
-        patch("agent_fabric.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
-        patch("agent_fabric.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
-        patch("agent_fabric.infrastructure.mcp.session._MCP_AVAILABLE", True),
+        patch("agentic_concierge.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
+        patch("agentic_concierge.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
+        patch("agentic_concierge.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
+        patch("agentic_concierge.infrastructure.mcp.session._MCP_AVAILABLE", True),
     ):
         mgr = MCPSessionManager(_stdio_config())
         await mgr.connect()
@@ -144,9 +144,9 @@ async def test_connect_sse_calls_sse_client():
     session_mock = _make_session_mock()
 
     with (
-        patch("agent_fabric.infrastructure.mcp.session.sse_client", side_effect=_noop_transport_cm),
-        patch("agent_fabric.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
-        patch("agent_fabric.infrastructure.mcp.session._MCP_AVAILABLE", True),
+        patch("agentic_concierge.infrastructure.mcp.session.sse_client", side_effect=_noop_transport_cm),
+        patch("agentic_concierge.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
+        patch("agentic_concierge.infrastructure.mcp.session._MCP_AVAILABLE", True),
     ):
         mgr = MCPSessionManager(_sse_config())
         await mgr.connect()
@@ -161,7 +161,7 @@ async def test_connect_sse_calls_sse_client():
 @pytest.mark.asyncio
 async def test_connect_raises_import_error_when_mcp_not_available():
     """connect() raises ImportError with a helpful message when mcp is not installed."""
-    with patch("agent_fabric.infrastructure.mcp.session._MCP_AVAILABLE", False):
+    with patch("agentic_concierge.infrastructure.mcp.session._MCP_AVAILABLE", False):
         mgr = MCPSessionManager(_stdio_config())
         with pytest.raises(ImportError, match="mcp.*package"):
             await mgr.connect()
@@ -202,10 +202,10 @@ async def test_list_tools_returns_prefixed_openai_defs():
     session_mock.list_tools = AsyncMock(return_value=list_result)
 
     with (
-        patch("agent_fabric.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
-        patch("agent_fabric.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
-        patch("agent_fabric.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
-        patch("agent_fabric.infrastructure.mcp.session._MCP_AVAILABLE", True),
+        patch("agentic_concierge.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
+        patch("agentic_concierge.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
+        patch("agentic_concierge.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
+        patch("agentic_concierge.infrastructure.mcp.session._MCP_AVAILABLE", True),
     ):
         mgr = MCPSessionManager(_stdio_config("github"))
         await mgr.connect()
@@ -232,10 +232,10 @@ async def test_call_tool_returns_result_on_success():
     session_mock.call_tool = AsyncMock(return_value=call_result)
 
     with (
-        patch("agent_fabric.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
-        patch("agent_fabric.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
-        patch("agent_fabric.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
-        patch("agent_fabric.infrastructure.mcp.session._MCP_AVAILABLE", True),
+        patch("agentic_concierge.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
+        patch("agentic_concierge.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
+        patch("agentic_concierge.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
+        patch("agentic_concierge.infrastructure.mcp.session._MCP_AVAILABLE", True),
     ):
         mgr = MCPSessionManager(_stdio_config("github"))
         await mgr.connect()
@@ -257,10 +257,10 @@ async def test_call_tool_returns_error_on_is_error():
     session_mock.call_tool = AsyncMock(return_value=call_result)
 
     with (
-        patch("agent_fabric.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
-        patch("agent_fabric.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
-        patch("agent_fabric.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
-        patch("agent_fabric.infrastructure.mcp.session._MCP_AVAILABLE", True),
+        patch("agentic_concierge.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
+        patch("agentic_concierge.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
+        patch("agentic_concierge.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
+        patch("agentic_concierge.infrastructure.mcp.session._MCP_AVAILABLE", True),
     ):
         mgr = MCPSessionManager(_stdio_config("github"))
         await mgr.connect()
@@ -279,10 +279,10 @@ async def test_call_tool_returns_empty_result_on_empty_content():
     session_mock.call_tool = AsyncMock(return_value=call_result)
 
     with (
-        patch("agent_fabric.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
-        patch("agent_fabric.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
-        patch("agent_fabric.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
-        patch("agent_fabric.infrastructure.mcp.session._MCP_AVAILABLE", True),
+        patch("agentic_concierge.infrastructure.mcp.session.StdioServerParameters", MagicMock()),
+        patch("agentic_concierge.infrastructure.mcp.session.stdio_client", side_effect=_noop_transport_cm),
+        patch("agentic_concierge.infrastructure.mcp.session.ClientSession", side_effect=lambda r, w: _session_cm(session_mock)),
+        patch("agentic_concierge.infrastructure.mcp.session._MCP_AVAILABLE", True),
     ):
         mgr = MCPSessionManager(_stdio_config("github"))
         await mgr.connect()

@@ -71,13 +71,13 @@ def skip_if_mcp_not_installed():
     try:
         import mcp  # noqa: F401
     except ImportError:
-        pytest.skip("mcp Python package not installed; run: pip install agent-fabric[mcp]")
+        pytest.skip("mcp Python package not installed; run: pip install agentic-concierge[mcp]")
 
 
 @pytest.fixture(scope="module")
 def github_mcp_config():
     """Return an MCPServerConfig for the GitHub MCP server authenticated via GITHUB_TOKEN."""
-    from agent_fabric.config.schema import MCPServerConfig
+    from agentic_concierge.config.schema import MCPServerConfig
 
     return MCPServerConfig(
         name="github",
@@ -101,7 +101,7 @@ async def test_list_tools_returns_non_empty(
     github_mcp_config,
 ):
     """MCPSessionManager.list_tools() returns at least one tool from the GitHub server."""
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     mgr = MCPSessionManager(github_mcp_config)
     try:
@@ -128,7 +128,7 @@ async def test_search_repositories(
     github_mcp_config,
 ):
     """search_repositories tool returns results for a well-known query."""
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     mgr = MCPSessionManager(github_mcp_config)
     try:
@@ -162,7 +162,7 @@ async def test_get_file_contents(
     github_mcp_config,
 ):
     """get_file_contents tool can fetch a file from a public repo."""
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     mgr = MCPSessionManager(github_mcp_config)
     try:
@@ -205,7 +205,7 @@ async def test_unknown_tool_returns_error(
     github_mcp_config,
 ):
     """call_tool() with an unknown name returns an error dict."""
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     mgr = MCPSessionManager(github_mcp_config)
     try:

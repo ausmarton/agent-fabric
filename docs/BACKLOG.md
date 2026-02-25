@@ -1,4 +1,4 @@
-# agent-fabric: Prioritised Backlog
+# agentic-concierge: Prioritised Backlog
 
 **Purpose:** Single source of truth for *what to work on next, in what order, and why*.
 Each item is self-contained: a fresh session can pick up any item using only this file, the
@@ -34,12 +34,12 @@ with no validation. If `summary` is missing the result is silently malformed. Ca
 CLI) will return a payload that is missing required fields with no error surfaced to the user.
 
 **What to change:**
-- `src/agent_fabric/application/execute_task.py` — where `finish_payload` is set (around
+- `src/agentic_concierge/application/execute_task.py` — where `finish_payload` is set (around
   the `if tc.tool_name == pack.finish_tool_name` block):
   - Validate `tc.arguments` contains at minimum `"summary"`.
   - If validation fails: log a `tool_result` event with the error, send the error back to the
     LLM as a tool result (so it can retry), and do **not** set `finish_payload`.
-- `src/agent_fabric/domain/errors.py` — add `FinishTaskValidationError` if needed.
+- `src/agentic_concierge/domain/errors.py` — add `FinishTaskValidationError` if needed.
 
 **Acceptance criteria:**
 - [ ] LLM calling `finish_task({})` causes the error to be returned to the LLM as a tool result,
@@ -48,7 +48,7 @@ CLI) will return a payload that is missing required fields with no error surface
 - [ ] New unit test in `tests/test_execute_task.py` (create this file) covering both cases.
 - [ ] `pytest tests/ -k "not real_llm and not verify"` still passes (45+).
 
-**Files:** `src/agent_fabric/application/execute_task.py`, `tests/test_execute_task.py` (new)
+**Files:** `src/agentic_concierge/application/execute_task.py`, `tests/test_execute_task.py` (new)
 
 ---
 
@@ -60,13 +60,13 @@ importantly, it hides the *nature* of failures: a sandbox `PermissionError` (sec
 a `FileNotFoundError` (tool bug), and a `ValueError` (bad arguments) are all treated identically.
 
 **What to change:**
-- `src/agent_fabric/application/execute_task.py` — around `pack.execute_tool(...)`:
+- `src/agentic_concierge/application/execute_task.py` — around `pack.execute_tool(...)`:
   - Catch specific exceptions: `PermissionError` (sandbox violation), `ValueError`/`TypeError`
     (bad args), `OSError` (filesystem), `Exception` as final fallback — but log each distinctly.
   - Add a `kind: "tool_error"` event to the runlog when a tool fails, distinct from a normal
     `tool_result`. Include `tool_name`, `error_type`, `error_message`.
   - Do NOT re-raise — the LLM should receive the error as a tool result so it can adapt.
-- `src/agent_fabric/infrastructure/workspace/run_log.py` — add `log_tool_error()` if not present.
+- `src/agentic_concierge/infrastructure/workspace/run_log.py` — add `log_tool_error()` if not present.
 
 **Acceptance criteria:**
 - [ ] A tool that raises `PermissionError` (sandbox escape) produces a `tool_error` runlog event.
@@ -75,8 +75,8 @@ a `FileNotFoundError` (tool bug), and a `ValueError` (bad arguments) are all tre
 - [ ] Tests in `tests/test_execute_task.py` covering sandbox violation and bad-args paths.
 - [ ] `pytest tests/ -k "not real_llm and not verify"` still passes.
 
-**Files:** `src/agent_fabric/application/execute_task.py`,
-`src/agent_fabric/infrastructure/workspace/run_log.py`, `tests/test_execute_task.py`
+**Files:** `src/agentic_concierge/application/execute_task.py`,
+`src/agentic_concierge/infrastructure/workspace/run_log.py`, `tests/test_execute_task.py`
 
 ---
 
@@ -99,14 +99,14 @@ This is below the bar for any system intended to run unattended.
 - Do NOT log sensitive data (API keys, file contents by default).
 
 **Key files to instrument first (highest value):**
-1. `src/agent_fabric/application/execute_task.py` — task start/end, each step, LLM fallback
-2. `src/agent_fabric/infrastructure/ollama/client.py` — request sent, response received, retries
-3. `src/agent_fabric/infrastructure/llm_discovery.py` — model resolved, fallbacks
-4. `src/agent_fabric/interfaces/http_api.py` — request received, result returned
-5. `src/agent_fabric/interfaces/cli.py` — add `--verbose` flag wiring
+1. `src/agentic_concierge/application/execute_task.py` — task start/end, each step, LLM fallback
+2. `src/agentic_concierge/infrastructure/ollama/client.py` — request sent, response received, retries
+3. `src/agentic_concierge/infrastructure/llm_discovery.py` — model resolved, fallbacks
+4. `src/agentic_concierge/interfaces/http_api.py` — request received, result returned
+5. `src/agentic_concierge/interfaces/cli.py` — add `--verbose` flag wiring
 
 **Acceptance criteria:**
-- [ ] `fabric run "list files" --pack engineering --verbose` prints INFO-level log lines to stderr.
+- [ ] `concierge run "list files" --pack engineering --verbose` prints INFO-level log lines to stderr.
 - [ ] Running the HTTP server and hitting `POST /run` produces log output at INFO.
 - [ ] No sensitive data (API keys) in default logs.
 - [ ] No existing tests broken.
@@ -124,17 +124,17 @@ be added without architectural surgery. This also blocks Phase 2 which adds capa
 routing — that feature is useless if packs can only be added by editing the registry.
 
 **What to change:**
-- `src/agent_fabric/infrastructure/specialists/registry.py` — replace the hardcoded dict with
+- `src/agentic_concierge/infrastructure/specialists/registry.py` — replace the hardcoded dict with
   one of these two strategies (prefer A):
   - **Strategy A (recommended): Config-driven factory map.**
-    `FabricConfig.specialists` already exists as `dict[str, SpecialistConfig]`. Extend
+    `ConciergeConfig.specialists` already exists as `dict[str, SpecialistConfig]`. Extend
     `SpecialistConfig` with an optional `builder` field (dotted module path, e.g.
-    `"agent_fabric.infrastructure.specialists.engineering:build_engineering_pack"`).
+    `"agentic_concierge.infrastructure.specialists.engineering:build_engineering_pack"`).
     The registry imports and calls the builder at `get_pack()` time.
     Built-in packs are registered via a default factory map keyed by `specialist_id`; config
     can override or add new ones.
   - **Strategy B: `importlib.metadata` entry points.**
-    Define a `"agent_fabric.specialists"` entry point group. Built-in packs are registered in
+    Define a `"agentic_concierge.specialists"` entry point group. Built-in packs are registered in
     `pyproject.toml`; external packs can register themselves the same way.
     This is the most Pythonic plugin pattern but requires a bit more setup.
 - Either strategy must preserve backward compatibility with existing tests and config.
@@ -146,8 +146,8 @@ routing — that feature is useless if packs can only be added by editing the re
       custom pack without modifying core code.
 - [ ] `pytest tests/ -k "not real_llm and not verify"` still passes.
 
-**Files:** `src/agent_fabric/infrastructure/specialists/registry.py`,
-`src/agent_fabric/config/schema.py` (if Strategy A), `pyproject.toml` (if Strategy B),
+**Files:** `src/agentic_concierge/infrastructure/specialists/registry.py`,
+`src/agentic_concierge/config/schema.py` (if Strategy A), `pyproject.toml` (if Strategy B),
 `tests/test_specialist_registry.py` (new)
 
 ---
@@ -165,7 +165,7 @@ Do these after all T1 items, or interleaved if a T1 item is blocked/waiting.
 work (T1-4) because new packs will copy-paste the same boilerplate.
 
 **What to change:**
-- Create `src/agent_fabric/infrastructure/specialists/tool_defs.py` with:
+- Create `src/agentic_concierge/infrastructure/specialists/tool_defs.py` with:
   - `def make_tool_def(name, description, parameters, required=None) -> dict` — the `_tool()` helper.
   - `def make_finish_tool_def(description, extra_properties=None, extra_required=None) -> dict`
     — builds the finish_task definition with common base fields (summary, artifacts, next_steps,
@@ -177,7 +177,7 @@ work (T1-4) because new packs will copy-paste the same boilerplate.
 - [ ] `finish_task` base schema (summary, artifacts, next_steps, notes) is defined once.
 - [ ] All existing pack tests still pass.
 
-**Files:** `src/agent_fabric/infrastructure/specialists/tool_defs.py` (new),
+**Files:** `src/agentic_concierge/infrastructure/specialists/tool_defs.py` (new),
 `engineering.py`, `research.py`
 
 ---
@@ -189,19 +189,19 @@ from disk, parses JSON, and constructs a Pydantic model — every single time. T
 per-request cost that will matter at any reasonable call rate.
 
 **What to change:**
-- `src/agent_fabric/config/loader.py` — use `functools.lru_cache` with `maxsize=1` on
-  `load_config()` OR cache the result at module level with a `_cache: FabricConfig | None`.
+- `src/agentic_concierge/config/loader.py` — use `functools.lru_cache` with `maxsize=1` on
+  `load_config()` OR cache the result at module level with a `_cache: ConciergeConfig | None`.
   - The cache must be invalidatable in tests (use `load_config.cache_clear()` if lru_cache).
-  - Config should be reloaded if `FABRIC_CONFIG_PATH` changes (accept this limitation for now;
+  - Config should be reloaded if `CONCIERGE_CONFIG_PATH` changes (accept this limitation for now;
     document it).
-- `src/agent_fabric/interfaces/http_api.py` — no changes needed if caching is in loader.
+- `src/agentic_concierge/interfaces/http_api.py` — no changes needed if caching is in loader.
 
 **Acceptance criteria:**
 - [ ] `load_config()` only reads the filesystem once per process (subsequent calls return cached).
 - [ ] Tests can reset cache between test runs (via `cache_clear()` or module-level reset).
 - [ ] No existing tests broken.
 
-**Files:** `src/agent_fabric/config/loader.py`
+**Files:** `src/agentic_concierge/config/loader.py`
 
 ---
 
@@ -237,10 +237,10 @@ distinguishing mark. There is no audit trail that a potentially adversarial inpu
 a path escape. For any system running LLM-generated code, this is a meaningful security gap.
 
 **What to change:**
-- `src/agent_fabric/application/execute_task.py` — in the scoped exception handler (T1-2):
+- `src/agentic_concierge/application/execute_task.py` — in the scoped exception handler (T1-2):
   when the caught exception is `PermissionError`, write a `kind: "security_event"` entry to
   the runlog in addition to the `tool_error` entry.
-- `src/agent_fabric/infrastructure/workspace/run_log.py` — add `log_security_event()`.
+- `src/agentic_concierge/infrastructure/workspace/run_log.py` — add `log_security_event()`.
 
 **Acceptance criteria:**
 - [ ] A `PermissionError` from tool execution produces a `security_event` runlog entry with
@@ -258,7 +258,7 @@ a path escape. For any system running LLM-generated code, this is a meaningful s
 explanation. Future maintainers cannot tell whether these are safe to change.
 
 **What to change:**
-- `src/agent_fabric/config/schema.py` or a new `src/agent_fabric/config/constants.py`:
+- `src/agentic_concierge/config/schema.py` or a new `src/agentic_concierge/config/constants.py`:
   - `MAX_TOOL_OUTPUT_CHARS: int = 50_000` — explain: prevents OOM from runaway shell output.
   - `MAX_LLM_CONTENT_IN_RUNLOG_CHARS: int = 2_000` — explain: runlog size control.
   - `LLM_DISCOVERY_TIMEOUT_S: float = 10.0` — explain: fast check, don't block startup.
@@ -301,7 +301,7 @@ Document this; add a deterministic tie-break (e.g., config order) and a test for
 ### ~~T3-4: Validate specialist IDs at config load time~~ **DONE 2026-02-24**
 
 Config can reference a `specialist_id` that doesn't exist in `config.specialists`. This only
-fails at execution time (when `get_pack()` raises). Add a validator in `FabricConfig` that
+fails at execution time (when `get_pack()` raises). Add a validator in `ConciergeConfig` that
 ensures every specialist referenced in routes/defaults exists in `config.specialists`.
 
 ### ~~T3-5: Extract `Task` construction to shared helper~~ **DONE 2026-02-24**
@@ -323,12 +323,12 @@ items are done and the Phase 1 verification gate still passes.
 
 **What:** Define a set of capability IDs (e.g., `"code_execution"`, `"file_io"`,
 `"systematic_review"`, `"web_search"`) and declare which capabilities each pack provides
-in `FabricConfig.specialists[id].capabilities: list[str]`.
+in `ConciergeConfig.specialists[id].capabilities: list[str]`.
 
 **Why:** Enables task→capabilities→pack routing that is grounded in what packs can actually do,
 not keyword heuristics.
 
-**Files:** `src/agent_fabric/config/schema.py`, `docs/CAPABILITIES.md` (new)
+**Files:** `src/agentic_concierge/config/schema.py`, `docs/CAPABILITIES.md` (new)
 
 ---
 
@@ -341,7 +341,7 @@ with a small router model + JSON schema.
 **Why:** Decouples "what capability is needed" from "which pack provides it" — enabling multi-pack
 task forces in Phase 3.
 
-**Files:** `src/agent_fabric/application/recruit.py` (rewrite or extend)
+**Files:** `src/agentic_concierge/application/recruit.py` (rewrite or extend)
 
 ---
 
@@ -351,7 +351,7 @@ task forces in Phase 3.
 For Phase 2: still single pack per run. Log `required_capabilities` and `selected_pack` in
 run metadata.
 
-**Files:** `src/agent_fabric/application/recruit.py`, `execute_task.py`, `run_log.py`
+**Files:** `src/agentic_concierge/application/recruit.py`, `execute_task.py`, `run_log.py`
 
 ---
 
@@ -384,7 +384,7 @@ requirement).
 Added `is_task_force` property. Added `_greedy_select_specialists()` to pick the
 minimum set of specialists that covers all required capabilities.
 
-**Files:** `src/agent_fabric/application/recruit.py`
+**Files:** `src/agentic_concierge/application/recruit.py`
 
 ---
 
@@ -395,7 +395,7 @@ loops over `specialist_ids`, running each pack in turn. Logs `pack_start` events
 multi-pack runs; step names are prefixed with specialist ID (`engineering_step_0`,
 `research_step_0`) so the runlog clearly shows which pack each step belongs to.
 
-**Files:** `src/agent_fabric/application/execute_task.py`
+**Files:** `src/agentic_concierge/application/execute_task.py`
 
 ---
 
@@ -406,7 +406,7 @@ context in its user message. Added `specialist_ids: List[str]` and `is_task_forc
 property to `RunResult`. Updated `http_api.py` `_meta` to include `specialist_ids`
 and `is_task_force`.
 
-**Files:** `src/agent_fabric/domain/models.py`, `src/agent_fabric/interfaces/http_api.py`
+**Files:** `src/agentic_concierge/domain/models.py`, `src/agentic_concierge/interfaces/http_api.py`
 
 ---
 
@@ -441,9 +441,9 @@ PLAN.md Phase 3 deliverables ticked off.
 
 ---
 
-### ~~P4-2: `fabric logs` CLI subcommand~~ **DONE 2026-02-24**
+### ~~P4-2: `concierge logs` CLI subcommand~~ **DONE 2026-02-24**
 
-**What:** Added `fabric logs list` (Rich table of runs, sorted most-recent-first, respects `--limit`) and `fabric logs show <run_id>` (pretty-printed JSON events, optional `--kinds` filter) to `interfaces/cli.py`. Created `infrastructure/workspace/run_reader.py` with `RunSummary` dataclass, `list_runs()`, `read_run_events()`, `_parse_runlog()`, `_summarise_run()`. Silently skips malformed runlog lines.
+**What:** Added `concierge logs list` (Rich table of runs, sorted most-recent-first, respects `--limit`) and `concierge logs show <run_id>` (pretty-printed JSON events, optional `--kinds` filter) to `interfaces/cli.py`. Created `infrastructure/workspace/run_reader.py` with `RunSummary` dataclass, `list_runs()`, `read_run_events()`, `_parse_runlog()`, `_summarise_run()`. Silently skips malformed runlog lines.
 
 **Tests:** `tests/test_logs_cli.py` — 18 tests.
 
@@ -451,7 +451,7 @@ PLAN.md Phase 3 deliverables ticked off.
 
 ### ~~P4-3: OpenTelemetry tracing (optional dep)~~ **DONE 2026-02-24**
 
-**What:** Created `infrastructure/telemetry.py` with `_NoOpSpan`, `_NoOpTracer`, `setup_telemetry()`, `get_tracer()`, `reset_for_testing()`. Graceful no-op when `opentelemetry-sdk` is not installed. Added `TelemetryConfig` to `config/schema.py` (`enabled`, `service_name`, `exporter`, `otlp_endpoint`; supports `"none"` | `"console"` | `"otlp"`). Added `telemetry: Optional[TelemetryConfig]` to `FabricConfig`. Instrumented `execute_task.py` with `fabric.execute_task` (root span), `fabric.llm_call` (wraps `chat_client.chat()`), and `fabric.tool_call` (wraps `pack.execute_tool()`). Added `[otel]` optional dep to `pyproject.toml`. Wired `setup_telemetry()` into CLI `run` command and HTTP API `lifespan`.
+**What:** Created `infrastructure/telemetry.py` with `_NoOpSpan`, `_NoOpTracer`, `setup_telemetry()`, `get_tracer()`, `reset_for_testing()`. Graceful no-op when `opentelemetry-sdk` is not installed. Added `TelemetryConfig` to `config/schema.py` (`enabled`, `service_name`, `exporter`, `otlp_endpoint`; supports `"none"` | `"console"` | `"otlp"`). Added `telemetry: Optional[TelemetryConfig]` to `ConciergeConfig`. Instrumented `execute_task.py` with `fabric.execute_task` (root span), `fabric.llm_call` (wraps `chat_client.chat()`), and `fabric.tool_call` (wraps `pack.execute_tool()`). Added `[otel]` optional dep to `pyproject.toml`. Wired `setup_telemetry()` into CLI `run` command and HTTP API `lifespan`.
 
 **Tests:** `tests/test_telemetry.py` — 13 tests (no-op shim, OTEL-only span emission with `InMemorySpanExporter`, `TelemetryConfig` schema).
 
@@ -471,7 +471,7 @@ PLAN.md Phase 3 deliverables ticked off.
 
 **What:** Added `MCPServerConfig(BaseModel)` to `config/schema.py` (`name`, `transport`, `command`/`args`/`env` for stdio, `url`/`headers` for SSE, `timeout_s`; validators require `command` for stdio and `url` for SSE). Added `mcp_servers: List[MCPServerConfig]` to `SpecialistConfig` with a validator that rejects duplicate server names. +6 tests in `tests/test_config.py`.
 
-**Files:** `src/agent_fabric/config/schema.py`, `tests/test_config.py`
+**Files:** `src/agentic_concierge/config/schema.py`, `tests/test_config.py`
 
 ---
 
@@ -479,7 +479,7 @@ PLAN.md Phase 3 deliverables ticked off.
 
 **What:** Made `BaseSpecialistPack.execute_tool()` async (calls sync tool functions directly — no executor needed). Added no-op `aopen()`/`aclose()` to `BaseSpecialistPack`. Updated `SpecialistPack` Protocol (`execute_tool` async, `aopen`/`aclose` added). Updated `_execute_pack_loop` to `await pack.execute_tool(...)` and wrap the step loop in `try/finally: await pack.aopen() / await pack.aclose()`. Updated `_StubPack.execute_tool` in `tests/test_specialist_registry.py`.
 
-**Files:** `src/agent_fabric/infrastructure/specialists/base.py`, `src/agent_fabric/application/ports.py`, `src/agent_fabric/application/execute_task.py`, `tests/test_specialist_registry.py`
+**Files:** `src/agentic_concierge/infrastructure/specialists/base.py`, `src/agentic_concierge/application/ports.py`, `src/agentic_concierge/application/execute_task.py`, `tests/test_specialist_registry.py`
 
 ---
 
@@ -487,7 +487,7 @@ PLAN.md Phase 3 deliverables ticked off.
 
 **What:** Created `infrastructure/mcp/` package. `converter.py`: `mcp_tool_to_openai_def(prefixed_name, tool)` — substitutes empty schema when `inputSchema` is None. `session.py`: `MCPSessionManager` with `connect()`/`disconnect()` via `AsyncExitStack`, `list_tools()` returning prefixed OpenAI defs, `call_tool()` (strips prefix, returns `{"result": text}` or `{"error": text}`), `owns_tool()`. Top-level `mcp` imports guarded with try/except for graceful no-op when package absent. +12 tests in `tests/test_mcp_session.py` (all mocked).
 
-**Files:** `src/agent_fabric/infrastructure/mcp/__init__.py`, `session.py`, `converter.py`; `tests/test_mcp_session.py` (new)
+**Files:** `src/agentic_concierge/infrastructure/mcp/__init__.py`, `session.py`, `converter.py`; `tests/test_mcp_session.py` (new)
 
 ---
 
@@ -495,15 +495,15 @@ PLAN.md Phase 3 deliverables ticked off.
 
 **What:** Created `infrastructure/mcp/augmented_pack.py` with `MCPAugmentedPack(inner, sessions)`: `aopen()` — `asyncio.gather()` connects + populates `_mcp_tool_defs`; `aclose()` — `asyncio.gather(..., return_exceptions=True)` ignores individual failures; `tool_definitions` — inner + MCP tools; `execute_tool()` — dispatches to owning session or inner pack; forwards `specialist_id`, `system_prompt`, `finish_tool_name`, `finish_required_fields`. +10 tests in `tests/test_mcp_augmented_pack.py`.
 
-**Files:** `src/agent_fabric/infrastructure/mcp/augmented_pack.py` (new); `tests/test_mcp_augmented_pack.py` (new)
+**Files:** `src/agentic_concierge/infrastructure/mcp/augmented_pack.py` (new); `tests/test_mcp_augmented_pack.py` (new)
 
 ---
 
 ### ~~P5-5: Registry integration~~ **DONE 2026-02-24**
 
-**What:** Updated `ConfigSpecialistRegistry.get_pack()` to wrap the built pack with `MCPAugmentedPack` when `spec_cfg.mcp_servers` is non-empty. Import is guarded: raises `RuntimeError("mcp package not installed")` if `agent_fabric.infrastructure.mcp` cannot be imported. +6 tests in `tests/test_mcp_registry.py`.
+**What:** Updated `ConfigSpecialistRegistry.get_pack()` to wrap the built pack with `MCPAugmentedPack` when `spec_cfg.mcp_servers` is non-empty. Import is guarded: raises `RuntimeError("mcp package not installed")` if `agentic_concierge.infrastructure.mcp` cannot be imported. +6 tests in `tests/test_mcp_registry.py`.
 
-**Files:** `src/agent_fabric/infrastructure/specialists/registry.py`, `tests/test_mcp_registry.py` (new)
+**Files:** `src/agentic_concierge/infrastructure/specialists/registry.py`, `tests/test_mcp_registry.py` (new)
 
 ---
 
@@ -523,7 +523,7 @@ Phase 7 is complete (P7-1 through P7-4 all done; fast CI: 342 pass). Phase 8 foc
 
 ### ~~P8-1: Parallel task force execution~~ **DONE 2026-02-25**
 
-- `config/schema.py`: Added `task_force_mode: str = Field("sequential", ...)` to `FabricConfig`.
+- `config/schema.py`: Added `task_force_mode: str = Field("sequential", ...)` to `ConciergeConfig`.
 - `execute_task.py`: `_run_task_force_parallel()` + `_merge_parallel_payloads()`; parallel path via `asyncio.gather`; sequential is default/unchanged.
 - 14 tests in `tests/test_parallel_task_force.py`.
 
@@ -564,11 +564,11 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 - Extend `infrastructure/workspace/run_index.py`:
   - `RunIndexEntry` gets an optional `embedding: Optional[list[float]]` field.
   - New `embed_text(text: str, model: str, base_url: str) -> list[float]` async function — calls `POST /api/embeddings` on the Ollama endpoint.
-  - New `semantic_search_index(query: str, workspace_root: str, config: FabricConfig, top_k: int = 10) -> list[RunIndexEntry]` — embeds the query, loads all entries, computes cosine similarity, returns top-k. Falls back to `search_index()` keyword search when no entries have embeddings.
+  - New `semantic_search_index(query: str, workspace_root: str, config: ConciergeConfig, top_k: int = 10) -> list[RunIndexEntry]` — embeds the query, loads all entries, computes cosine similarity, returns top-k. Falls back to `search_index()` keyword search when no entries have embeddings.
   - `append_to_index()` updated to optionally embed the entry at write time (new `embed: bool` param; default False for backward compatibility — can opt in via config).
-- `config/schema.py`: Add `RunIndexConfig(BaseModel)` with `embedding_model: Optional[str] = None` (e.g. `"nomic-embed-text"`). Add `run_index: RunIndexConfig = Field(default_factory=RunIndexConfig)` to `FabricConfig`.
+- `config/schema.py`: Add `RunIndexConfig(BaseModel)` with `embedding_model: Optional[str] = None` (e.g. `"nomic-embed-text"`). Add `run_index: RunIndexConfig = Field(default_factory=RunIndexConfig)` to `ConciergeConfig`.
 - `execute_task.py`: Pass `config.run_index` to `append_to_index()` — embed when `embedding_model` is set.
-- `interfaces/cli.py`: `fabric logs search` uses `semantic_search_index()` when embeddings are available; falls back to keyword search otherwise.
+- `interfaces/cli.py`: `concierge logs search` uses `semantic_search_index()` when embeddings are available; falls back to keyword search otherwise.
 
 **Acceptance criteria:**
 - [ ] `RunIndexEntry` can serialise/deserialise with `embedding` field (None = not embedded).
@@ -598,7 +598,7 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 **Acceptance criteria:**
 - [ ] `tests/test_mcp_real_github.py` passes when `GITHUB_TOKEN` is set and `npx` is in PATH.
 - [ ] Tests are deselected from fast CI (`-k "not real_mcp"`).
-- [ ] `docs/MCP_INTEGRATIONS.md` includes complete `FabricConfig` YAML examples for GitHub, Confluence, and Jira stubs (even if Confluence/Jira tests are deferred).
+- [ ] `docs/MCP_INTEGRATIONS.md` includes complete `ConciergeConfig` YAML examples for GitHub, Confluence, and Jira stubs (even if Confluence/Jira tests are deferred).
 - [ ] Fast CI count unchanged.
 
 **Files:** `tests/test_mcp_real_github.py` (new), `config/capabilities.py`, `docs/MCP_INTEGRATIONS.md` (new)
@@ -645,14 +645,14 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 
 **What to build:**
 - A `RunIndex` infrastructure component that maintains a lightweight JSONL index of all past runs: `run_id`, `specialist_ids`, `prompt_prefix` (first 200 chars), `finish_summary` (from `payload["summary"]`), `timestamp`, `workspace_path`.
-- Index is written atomically after each successful run (append to `.fabric/run_index.jsonl`).
+- Index is written atomically after each successful run (append to `.concierge/run_index.jsonl`).
 - A `search_runs(query: str) -> list[RunSummary]` function (keyword / substring, no vector store yet) that lets a future pack or the orchestrator retrieve relevant prior results.
-- Expose via `fabric logs search <query>` CLI subcommand.
+- Expose via `concierge logs search <query>` CLI subcommand.
 - Phase 6.2 will add vector search; Phase 6.1 uses substring matching — simple, no new deps.
 
 **Acceptance criteria:**
 - [ ] Every `execute_task` run appends to the run index on success.
-- [ ] `fabric logs search "kubernetes"` returns all prior runs whose prompt or summary contains that string.
+- [ ] `concierge logs search "kubernetes"` returns all prior runs whose prompt or summary contains that string.
 - [ ] The index file is append-only JSONL; survives partial writes (write + atomic rename).
 - [ ] Tests: `tests/test_run_index.py` — 8–10 tests; fast CI stays green.
 
@@ -709,7 +709,7 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 
 **What was built:**
 - `infrastructure/chat/fallback.py`: `FallbackPolicy(mode)` — evaluates `LLMResponse` against `"no_tool_calls"` / `"malformed_args"` / `"always"` policies (unknown mode = never trigger). `FallbackChatClient(local, cloud, cloud_model, policy)` — calls local first; if policy triggers, calls cloud and queues a `cloud_fallback` event in `pop_events()`.
-- `config/schema.py`: `CloudFallbackConfig(model_key, policy="no_tool_calls")` + `cloud_fallback: Optional[CloudFallbackConfig]` on `FabricConfig`. Defaults to `None` — identical behaviour when absent.
+- `config/schema.py`: `CloudFallbackConfig(model_key, policy="no_tool_calls")` + `cloud_fallback: Optional[CloudFallbackConfig]` on `ConciergeConfig`. Defaults to `None` — identical behaviour when absent.
 - `execute_task.py`: Auto-wraps injected `chat_client` with `FallbackChatClient` when `config.cloud_fallback` is set (local import + `build_chat_client` for cloud). Drains `pop_events()` after each LLM call and logs `cloud_fallback` runlog events with `reason`, `local_model`, `cloud_model`.
 - `tests/test_chat_fallback.py`: 21 tests — policy unit tests (8), client unit tests (8), config tests (3), execute_task integration tests (2). All mocked; no real cloud call needed. Fast CI: 304 pass (+21).
 
@@ -724,16 +724,16 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 | P7-4: Docs update for Phase 7 | 2026-02-25 | STATE.md (phase 7 in progress → complete, CI 342); PLAN.md (Phase 7 deliverables all ticked); VISION.md §7 (Phase 7 in history) + §8 (enterprise integrations row updated); BACKLOG.md done table. |
 | P7-3: Enterprise research specialist | 2026-02-25 | infrastructure/specialists/enterprise_research.py — cross_run_search tool (queries run index), file tools, web tools (network_allowed); SYSTEM_PROMPT_ENTERPRISE_RESEARCH (staleness/confidence notation, multi-source, structured reports); enterprise_research in DEFAULT_CONFIG with enterprise_search + github_search caps; registry._DEFAULT_BUILDERS updated; 16 tests — system prompt, capabilities, tool defs, cross_run_search execution, routing. Fast CI: 342 pass (+16). |
 | P7-2: GitHub MCP integration | 2026-02-25 | tests/test_mcp_real_github.py — 4 tests (list_tools, search_repositories, get_file_contents, unknown_tool_returns_error); skip_if_github_token_missing + skip_if_npx_unavailable + skip_if_mcp_not_installed fixtures; github_search + enterprise_search capability IDs added to capabilities.py; docs/MCP_INTEGRATIONS.md with GitHub/Confluence/Jira/filesystem config examples. Fast CI: 326 pass (unchanged — real_mcp deselected). |
-| P7-1: Semantic run index search | 2026-02-25 | RunIndexEntry.embedding (Optional[List[float]]); embed_text() via Ollama /api/embeddings (strips /v1 suffix); cosine_similarity(); semantic_search_index() with fallback to keyword; RunIndexConfig(embedding_model, embedding_base_url) on FabricConfig; execute_task embeds entry when configured; fabric logs search uses semantic when available. 22 tests. Fast CI: 326 pass (+22). |
-| P6-4: Cloud LLM fallback | 2026-02-25 | FallbackPolicy (no_tool_calls / malformed_args / always) + FallbackChatClient with pop_events(); CloudFallbackConfig on FabricConfig; execute_task auto-wraps + logs cloud_fallback runlog events. 21 tests, all mocked. Fast CI: 304 pass (+21). |
+| P7-1: Semantic run index search | 2026-02-25 | RunIndexEntry.embedding (Optional[List[float]]); embed_text() via Ollama /api/embeddings (strips /v1 suffix); cosine_similarity(); semantic_search_index() with fallback to keyword; RunIndexConfig(embedding_model, embedding_base_url) on ConciergeConfig; execute_task embeds entry when configured; concierge logs search uses semantic when available. 22 tests. Fast CI: 326 pass (+22). |
+| P6-4: Cloud LLM fallback | 2026-02-25 | FallbackPolicy (no_tool_calls / malformed_args / always) + FallbackChatClient with pop_events(); CloudFallbackConfig on ConciergeConfig; execute_task auto-wraps + logs cloud_fallback runlog events. 21 tests, all mocked. Fast CI: 304 pass (+21). |
 | P6-3: Containerised workspace isolation (Podman) | 2026-02-25 | ContainerisedSpecialistPack — podman run/exec/stop lifecycle; :Z SELinux volume label; shell intercepted, other tools delegated; container_image on SpecialistConfig; registry wraps after MCP; 26 tests (22 unit + 4 real Podman). Fast CI: 283 pass (+26). |
 | P6-2: Real MCP server smoke test | 2026-02-25 | tests/test_mcp_real_server.py — 5 tests using @modelcontextprotocol/server-filesystem via npx; fixtures skip gracefully when npx or mcp package absent; all 5 pass end-to-end. pyproject.toml: real_llm + real_mcp markers declared. Fast CI: 257 pass (unchanged). |
 | P5-1 through P5-6: Phase 5 MCP tool server support | 2026-02-24 | MCPServerConfig + mcp_servers on SpecialistConfig; execute_tool async + aopen/aclose lifecycle; MCPSessionManager + converter; MCPAugmentedPack wrapper; registry transparent wrap; [mcp] optional dep. Fast CI: 243 pass (+34) |
-| P4-1 through P4-4: Phase 4 observability + multi-backend LLM | 2026-02-24 | GenericChatClient + build_chat_client() factory + ModelConfig.backend; fabric logs list/show CLI; OpenTelemetry no-op shim + optional real OTEL (console/otlp); TelemetryConfig schema; execute_task spans (execute_task, llm_call, tool_call); setup_telemetry() wired into CLI + HTTP API lifespan; [otel] pyproject.toml extra. Fast CI: 194 pass (+50) |
+| P4-1 through P4-4: Phase 4 observability + multi-backend LLM | 2026-02-24 | GenericChatClient + build_chat_client() factory + ModelConfig.backend; concierge logs list/show CLI; OpenTelemetry no-op shim + optional real OTEL (console/otlp); TelemetryConfig schema; execute_task spans (execute_task, llm_call, tool_call); setup_telemetry() wired into CLI + HTTP API lifespan; [otel] pyproject.toml extra. Fast CI: 194 pass (+50) |
 | P3-1 through P3-5: Phase 3 multi-pack task force | 2026-02-24 | RecruitmentResult.specialist_ids (greedy selection); _execute_pack_loop(); sequential multi-pack execution with context handoff; pack_start events + prefixed step names; RunResult.specialist_ids + is_task_force; HTTP _meta updated; 17 new tests in test_task_force.py + 2 in test_capabilities.py. Fast CI: 144 pass (+22) |
 | P2-1 through P2-5: Phase 2 capability routing | 2026-02-24 | CAPABILITY_KEYWORDS + capabilities on SpecialistConfig; infer_capabilities(); RecruitmentResult; two-stage routing (caps → keyword fallback); recruitment runlog event; required_capabilities in RunResult + HTTP _meta; docs/CAPABILITIES.md; REQUIREMENTS FR2 + VISION §8 updated. Fast CI: 122 pass (+17) |
 | T3-5: Extract build_task() to domain | 2026-02-24 | build_task() in domain/models.py; (pack or "").strip() or None fixes subtle whitespace-only inconsistency between CLI and HTTP paths; exported from domain/__init__; 6 new tests |
-| T3-4: Config validation at load time | 2026-02-24 | @model_validator on FabricConfig rejects empty specialists dict; docstring marks extension point for future cross-reference checks; 3 new tests |
+| T3-4: Config validation at load time | 2026-02-24 | @model_validator on ConciergeConfig rejects empty specialists dict; docstring marks extension point for future cross-reference checks; 3 new tests |
 | T3-3: Tie-breaking in recruit_specialist | 2026-02-24 | Explicit min(-score, config_index) replaces implicit max; docstring documents contract; 2 parametrized tie-break tests |
 | T3-2: Parametrize tests | 2026-02-24 | test_packs, test_router, test_sandbox, test_llm_discovery; 94 pass (was 82; +12 named cases) |
 | T3-1: Architecture diagram | 2026-02-24 | Complete rewrite of `docs/ARCHITECTURE.md`: ASCII layer overview, component map with all source files, data flow + sequence diagram, runlog events table, extension points, config/startup flow, dependency rule table |

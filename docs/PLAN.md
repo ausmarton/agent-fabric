@@ -1,4 +1,4 @@
-# agent-fabric: Iterative Build Plan
+# agentic-concierge: Iterative Build Plan
 
 This document defines **phases**, **deliverables**, and **verification gates** so the system can be built incrementally and any session (human or agent) can **resume** with full context.
 
@@ -29,11 +29,11 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 - **Automated (every change / before merge):**
   - `pytest tests/ -v` — all tests pass.
-  - Lint (if configured): e.g. `ruff check src/agent_fabric`.
+  - Lint (if configured): e.g. `ruff check src/agentic_concierge`.
 - **Manual (per phase or before marking phase complete):**
-  - CLI: `fabric --help`, `fabric run --help`; `fabric run "…" --pack engineering` (with or without LLM server) behaves as in REQUIREMENTS.
-  - API: `fabric serve` + `curl http://127.0.0.1:8787/health`.
-  - Run structure: `.fabric/runs/<id>/runlog.jsonl` and `workspace/` exist after a run.
+  - CLI: `concierge --help`, `concierge run --help`; `concierge run "…" --pack engineering` (with or without LLM server) behaves as in REQUIREMENTS.
+  - API: `concierge serve` + `curl http://127.0.0.1:8787/health`.
+  - Run structure: `.concierge/runs/<id>/runlog.jsonl` and `workspace/` exist after a run.
 - **E2E (when LLM server available):**
   - One engineering run and one research run as in REQUIREMENTS “End-to-end validation”; inspect artifacts and runlog.
 
@@ -46,9 +46,9 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 **Goal:** A working fabric with one-pack-per-run recruitment, engineering and research packs, local LLM only, and enough tests and docs to iterate safely.
 
 **What Phase 1 delivers (outcomes):**
-- You can run `fabric run "your prompt"` (or `--pack engineering` / `--pack research`) and get a run directory with a structured runlog and workspace; the router picks a pack when you don’t specify one.
-- You can run `fabric serve` and hit `GET /health` and `POST /run` to drive the same behaviour over HTTP.
-- Config is default + optional file via `FABRIC_CONFIG_PATH`; model params (temperature, max_tokens) are passed to the LLM.
+- You can run `concierge run "your prompt"` (or `--pack engineering` / `--pack research`) and get a run directory with a structured runlog and workspace; the router picks a pack when you don’t specify one.
+- You can run `concierge serve` and hit `GET /health` and `POST /run` to drive the same behaviour over HTTP.
+- Config is default + optional file via `CONCIERGE_CONFIG_PATH`; model params (temperature, max_tokens) are passed to the LLM.
 - Engineering and research packs each have tools and workflows; quality gates (no “works” without tests, deploy proposed only, citations only from fetch) are in the prompts.
 - Sandbox keeps file and shell operations scoped and safe; automated tests plus a clear verification gate prove the above.
 
@@ -56,15 +56,15 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 | # | Deliverable | Where it lives | Verification |
 |---|-------------|----------------|--------------|
-| 1.1 | CLI: `fabric run`, `fabric serve`, options | `src/agent_fabric/interfaces/cli.py` | `fabric --help`, `fabric run --help` |
-| 1.2 | HTTP API: `/health`, `POST /run` | `src/agent_fabric/interfaces/http_api.py` | `curl .../health`, POST with prompt |
-| 1.3 | Config: defaults + optional file via `FABRIC_CONFIG_PATH` | `src/agent_fabric/config/` | Config load test; env override |
-| 1.4 | Recruit: keyword scoring + fallback (engineering vs research) | `src/agent_fabric/application/recruit.py` | `tests/test_router.py` |
-| 1.5 | Execute task: run dir, workspace, runlog, one pack per run | `src/agent_fabric/application/execute_task.py` | Run once; check run dir structure |
-| 1.6 | Engineering specialist: tools + prompts | `src/agent_fabric/infrastructure/specialists/engineering.py` | Run with `--pack engineering`; runlog has tool_call |
-| 1.7 | Research specialist: tools + prompts | `src/agent_fabric/infrastructure/specialists/research.py` | Run with `--pack research`; `network_allowed` gates web tools |
-| 1.8 | Sandbox: path safety, shell allowlist | `src/agent_fabric/infrastructure/tools/sandbox.py` | `tests/test_sandbox.py` |
-| 1.9 | Runlog and model params passed to LLM | `src/agent_fabric/infrastructure/workspace/run_log.py`; execute_task uses `model_cfg` | Runlog exists; temperature/max_tokens in use |
+| 1.1 | CLI: `concierge run`, `concierge serve`, options | `src/agentic_concierge/interfaces/cli.py` | `concierge --help`, `concierge run --help` |
+| 1.2 | HTTP API: `/health`, `POST /run` | `src/agentic_concierge/interfaces/http_api.py` | `curl .../health`, POST with prompt |
+| 1.3 | Config: defaults + optional file via `CONCIERGE_CONFIG_PATH` | `src/agentic_concierge/config/` | Config load test; env override |
+| 1.4 | Recruit: keyword scoring + fallback (engineering vs research) | `src/agentic_concierge/application/recruit.py` | `tests/test_router.py` |
+| 1.5 | Execute task: run dir, workspace, runlog, one pack per run | `src/agentic_concierge/application/execute_task.py` | Run once; check run dir structure |
+| 1.6 | Engineering specialist: tools + prompts | `src/agentic_concierge/infrastructure/specialists/engineering.py` | Run with `--pack engineering`; runlog has tool_call |
+| 1.7 | Research specialist: tools + prompts | `src/agentic_concierge/infrastructure/specialists/research.py` | Run with `--pack research`; `network_allowed` gates web tools |
+| 1.8 | Sandbox: path safety, shell allowlist | `src/agentic_concierge/infrastructure/tools/sandbox.py` | `tests/test_sandbox.py` |
+| 1.9 | Runlog and model params passed to LLM | `src/agentic_concierge/infrastructure/workspace/run_log.py`; execute_task uses `model_cfg` | Runlog exists; temperature/max_tokens in use |
 | 1.10 | Quality gates in prompts (no “works” without tests; deploy proposed only; citations only from fetch) | Workflow system rules, REQUIREMENTS FR5 | README + REQUIREMENTS |
 | 1.11 | Automated tests for router, sandbox, json_tools, prompts, config, packs | `tests/` | `pytest tests/ -v` |
 | 1.12 | Docs: README, REQUIREMENTS, VISION, PLAN, STATE | Various | All referenced docs exist and linked |
@@ -73,11 +73,11 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 ### Phase 1 verification gate
 
 - [ ] **Full validation:** `python scripts/validate_full.py` passes (ensures real LLM, then all 42 tests run including at least a couple of real-LLM E2E tests; those E2E runs are essential for integration assurance).
-- [ ] `fabric run "list files" --pack engineering` creates `.fabric/runs/<id>/runlog.jsonl` and `workspace/` (fails at LLM if no server; that’s OK).
-- [ ] `fabric serve` and `curl http://127.0.0.1:8787/health` return `{"ok": true}`.
+- [ ] `concierge run "list files" --pack engineering` creates `.concierge/runs/<id>/runlog.jsonl` and `workspace/` (fails at LLM if no server; that’s OK).
+- [ ] `concierge serve` and `curl http://127.0.0.1:8787/health` return `{"ok": true}`.
 - [ ] REQUIREMENTS.md “Manual validation” items 1–4 pass.
 
-**Phase 1 acceptance (we're done when):** All 13 deliverables implemented; full validation (scripts/validate_full.py) run and passed so at least a couple of real-LLM E2E tests have run and passed (integration assurance); manual checks: CLI help, `fabric run` creates run dir + runlog + workspace, `fabric serve` + `/health` returns `{"ok": true}`. Update STATE.md to “Phase 1 complete” and set “Next: Phase 2”.
+**Phase 1 acceptance (we're done when):** All 13 deliverables implemented; full validation (scripts/validate_full.py) run and passed so at least a couple of real-LLM E2E tests have run and passed (integration assurance); manual checks: CLI help, `concierge run` creates run dir + runlog + workspace, `concierge serve` + `/health` returns `{"ok": true}`. Update STATE.md to “Phase 1 complete” and set “Next: Phase 2”.
 
 ---
 
@@ -129,18 +129,18 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 ## Phase 4: Observability and multi-backend LLM — **complete**
 
-**Goal:** Add production-grade observability (OpenTelemetry spans), a `fabric logs` CLI for inspecting past runs, and a generic LLM client so cloud/enterprise LLM endpoints work without Ollama quirks. All optional/additive: no breaking changes to existing functionality.
+**Goal:** Add production-grade observability (OpenTelemetry spans), a `concierge logs` CLI for inspecting past runs, and a generic LLM client so cloud/enterprise LLM endpoints work without Ollama quirks. All optional/additive: no breaking changes to existing functionality.
 
 ### Deliverables (Phase 4)
 
 | # | Deliverable | Status | Notes |
 |---|-------------|--------|-------|
 | 4.1 | Generic/cloud LLM client + `ModelConfig.backend` | Done | `infrastructure/chat/__init__.py` (`build_chat_client()` factory); `GenericChatClient` (no Ollama 400 retry); shared `parse_chat_response()` in `_parser.py`; `backend: str = "ollama"` on `ModelConfig`; CLI + HTTP API updated; 15 new tests |
-| 4.2 | `fabric logs` CLI subcommand | Done | `logs list` (Rich table, sorted most-recent-first) + `logs show` (pretty JSON with `--kinds` filter); `RunSummary` dataclass + `list_runs()` + `read_run_events()` in `infrastructure/workspace/run_reader.py`; 18 new tests |
+| 4.2 | `concierge logs` CLI subcommand | Done | `logs list` (Rich table, sorted most-recent-first) + `logs show` (pretty JSON with `--kinds` filter); `RunSummary` dataclass + `list_runs()` + `read_run_events()` in `infrastructure/workspace/run_reader.py`; 18 new tests |
 | 4.3 | OpenTelemetry tracing (optional dep) | Done | `infrastructure/telemetry.py` (`_NoOpSpan`, `_NoOpTracer`, `setup_telemetry()`, `get_tracer()`); graceful no-op when OTEL not installed; `TelemetryConfig` in config schema; `fabric.execute_task` / `fabric.llm_call` / `fabric.tool_call` spans; `[otel]` extra in `pyproject.toml`; wired into CLI + HTTP API lifespan; 13 new tests |
 | 4.4 | Docs update | Done | BACKLOG.md Phase 4 section; STATE.md phase + CI count; PLAN.md Phase 4 concrete deliverables |
 
-**Phase 4 acceptance:** All 4 deliverables implemented; fast CI: **194 pass** (+50 vs Phase 3). `ModelConfig.backend = "generic"` routes to `GenericChatClient`; `fabric logs list` shows past runs; OTEL spans emitted when `telemetry.enabled=true`.
+**Phase 4 acceptance:** All 4 deliverables implemented; fast CI: **194 pass** (+50 vs Phase 3). `ModelConfig.backend = "generic"` routes to `GenericChatClient`; `concierge logs list` shows past runs; OTEL spans emitted when `telemetry.enabled=true`.
 
 ---
 
@@ -171,12 +171,12 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 | # | Deliverable | Status | Notes |
 |---|-------------|--------|-------|
-| 6.1 | Persistent run index + `fabric logs search` | Done | `infrastructure/workspace/run_index.py`; append-only JSONL; keyword/substring `search_index()`; `fabric logs search <query>` CLI; `execute_task` appends on success; 9 tests |
+| 6.1 | Persistent run index + `concierge logs search` | Done | `infrastructure/workspace/run_index.py`; append-only JSONL; keyword/substring `search_index()`; `concierge logs search <query>` CLI; `execute_task` appends on success; 9 tests |
 | 6.2 | Real MCP server smoke test | Done | `tests/test_mcp_real_server.py` — 5 tests using `@modelcontextprotocol/server-filesystem` via `npx`; `real_mcp` marker; `podman`/`real_llm`/`real_mcp` all declared in `pyproject.toml` |
 | 6.3 | Containerised workspace isolation (Podman) | Done | `infrastructure/specialists/containerised.py` — `ContainerisedSpecialistPack`; `podman run -d --rm -v workspace:/workspace:Z`; shell intercepted via `podman exec`; `SpecialistConfig.container_image`; registry wraps after MCP; 26 tests (22 unit + 4 real Podman) |
-| 6.4 | Cloud LLM fallback | Done | `infrastructure/chat/fallback.py` — `FallbackPolicy` (no_tool_calls / malformed_args / always) + `FallbackChatClient` + `pop_events()`; `CloudFallbackConfig` + `cloud_fallback` on `FabricConfig`; `execute_task` auto-wraps + drains events + logs `cloud_fallback` runlog events; 21 tests |
+| 6.4 | Cloud LLM fallback | Done | `infrastructure/chat/fallback.py` — `FallbackPolicy` (no_tool_calls / malformed_args / always) + `FallbackChatClient` + `pop_events()`; `CloudFallbackConfig` + `cloud_fallback` on `ConciergeConfig`; `execute_task` auto-wraps + drains events + logs `cloud_fallback` runlog events; 21 tests |
 
-**Phase 6 acceptance:** All 4 deliverables implemented; fast CI: **304 pass** (+47 vs Phase 5). `SpecialistConfig(container_image="python:3.12-slim")` wraps pack with `ContainerisedSpecialistPack`; `FabricConfig(cloud_fallback=CloudFallbackConfig(...))` auto-wraps chat client; `fabric logs search` returns matching prior runs.
+**Phase 6 acceptance:** All 4 deliverables implemented; fast CI: **304 pass** (+47 vs Phase 5). `SpecialistConfig(container_image="python:3.12-slim")` wraps pack with `ContainerisedSpecialistPack`; `ConciergeConfig(cloud_fallback=CloudFallbackConfig(...))` auto-wraps chat client; `concierge logs search` returns matching prior runs.
 
 ---
 
@@ -188,7 +188,7 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 | # | Deliverable | Status | Notes |
 |---|-------------|--------|-------|
-| 7.1 | Semantic run index search (vector embeddings) | Done | `run_index.py`: `RunIndexEntry.embedding`; `embed_text()` via Ollama `/api/embeddings` (strips `/v1`); `cosine_similarity()`; `semantic_search_index()` with keyword fallback; `RunIndexConfig` + `run_index` on `FabricConfig`; `execute_task` embeds entry when configured; `fabric logs search` uses semantic when available; 22 tests |
+| 7.1 | Semantic run index search (vector embeddings) | Done | `run_index.py`: `RunIndexEntry.embedding`; `embed_text()` via Ollama `/api/embeddings` (strips `/v1`); `cosine_similarity()`; `semantic_search_index()` with keyword fallback; `RunIndexConfig` + `run_index` on `ConciergeConfig`; `execute_task` embeds entry when configured; `concierge logs search` uses semantic when available; 22 tests |
 | 7.2 | GitHub MCP integration + tests | Done | `tests/test_mcp_real_github.py` — 4 tests (list_tools, search_repositories, get_file_contents, unknown_tool); `github_search` + `enterprise_search` capabilities in `capabilities.py`; `docs/MCP_INTEGRATIONS.md` with GitHub/Confluence/Jira/filesystem config examples |
 | 7.3 | Enterprise research specialist | Done | `infrastructure/specialists/enterprise_research.py` — `cross_run_search` tool (queries run index); staleness/confidence system prompt; `enterprise_search` + `github_search` capabilities; entry in `DEFAULT_CONFIG`; registry `_DEFAULT_BUILDERS` updated; 16 tests |
 | 7.4 | Docs update | Done | STATE.md (phase 7 complete, CI 342); PLAN.md (this table); VISION.md §7 (Phase 7 in history, Phase 8+ planned) + §8 (enterprise integrations row updated) |
@@ -203,7 +203,7 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 | # | Deliverable | Status | Notes |
 |---|-------------|--------|-------|
-| 8.1 | Parallel task force execution | Done | `FabricConfig.task_force_mode` ('sequential'/'parallel'); `_run_task_force_parallel()` + `_merge_parallel_payloads()` in `execute_task.py`; asyncio.gather for concurrent packs; errors per-pack (non-fatal); 14 tests in `test_parallel_task_force.py` |
+| 8.1 | Parallel task force execution | Done | `ConciergeConfig.task_force_mode` ('sequential'/'parallel'); `_run_task_force_parallel()` + `_merge_parallel_payloads()` in `execute_task.py`; asyncio.gather for concurrent packs; errors per-pack (non-fatal); 14 tests in `test_parallel_task_force.py` |
 | 8.2 | SSE run event streaming | Done | `event_queue: Optional[asyncio.Queue]` on `execute_task()`; `_emit()` helper mirrors every runlog event to queue; `run_complete` event written at end of every successful run; `_run_done_`/`_run_error_` sentinels terminate stream; `POST /run/stream` returns `text/event-stream`; 6 tests in `test_run_streaming.py` |
 | 8.3 | Run status endpoint | Done | `GET /runs/{run_id}/status` — reads runlog for `run_complete` event; returns `completed`/`running`/404; no full scan needed; 6 tests in `test_run_status.py` |
 | 8.4 | Docs update | Done | ARCHITECTURE.md (Phase 4-8 components, streaming flow, full runlog table); README.md (Phase 8 features, HTTP API, full CLI); CONTRIBUTING.md (new); LICENSE (MIT); PLAN.md Phase 8; VISION.md §7 updated |

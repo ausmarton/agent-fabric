@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_fabric.domain import LLMResponse, ToolCallRequest
-from agent_fabric.infrastructure.chat.fallback import FallbackChatClient, FallbackPolicy
+from agentic_concierge.domain import LLMResponse, ToolCallRequest
+from agentic_concierge.infrastructure.chat.fallback import FallbackChatClient, FallbackPolicy
 
 
 # ---------------------------------------------------------------------------
@@ -253,18 +253,18 @@ async def test_multiple_calls_accumulate_events_until_popped():
 
 
 def test_cloud_fallback_defaults_to_none():
-    """FabricConfig.cloud_fallback is None by default."""
-    from agent_fabric.config import load_config
+    """ConciergeConfig.cloud_fallback is None by default."""
+    from agentic_concierge.config import load_config
     config = load_config()
     assert config.cloud_fallback is None
 
 
 def test_cloud_fallback_config_valid():
     """A valid CloudFallbackConfig is accepted."""
-    from agent_fabric.config.schema import (
-        CloudFallbackConfig, FabricConfig, ModelConfig, SpecialistConfig,
+    from agentic_concierge.config.schema import (
+        CloudFallbackConfig, ConciergeConfig, ModelConfig, SpecialistConfig,
     )
-    cfg = FabricConfig(
+    cfg = ConciergeConfig(
         models={
             "quality": ModelConfig(base_url="http://localhost:11434/v1", model="llama3:8b"),
             "cloud": ModelConfig(
@@ -282,7 +282,7 @@ def test_cloud_fallback_config_valid():
 
 
 def test_cloud_fallback_default_policy_is_no_tool_calls():
-    from agent_fabric.config.schema import CloudFallbackConfig
+    from agentic_concierge.config.schema import CloudFallbackConfig
     cfg = CloudFallbackConfig(model_key="cloud")
     assert cfg.policy == "no_tool_calls"
 
@@ -297,12 +297,12 @@ async def test_execute_task_logs_cloud_fallback_event_in_runlog(tmp_path):
     """When FallbackChatClient is used, cloud_fallback events appear in the runlog."""
     from pathlib import Path
 
-    from agent_fabric.application.execute_task import execute_task
-    from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig
-    from agent_fabric.domain import Task, LLMResponse, ToolCallRequest, RunResult
-    from agent_fabric.infrastructure.chat.fallback import FallbackChatClient, FallbackPolicy
+    from agentic_concierge.application.execute_task import execute_task
+    from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig
+    from agentic_concierge.domain import Task, LLMResponse, ToolCallRequest, RunResult
+    from agentic_concierge.infrastructure.chat.fallback import FallbackChatClient, FallbackPolicy
 
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"quality": ModelConfig(base_url="http://localhost:11434/v1", model="local-m")},
         specialists={
             "engineering": SpecialistConfig(
@@ -368,7 +368,7 @@ async def test_execute_task_logs_cloud_fallback_event_in_runlog(tmp_path):
 
     class _Repo:
         def create_run(self):
-            from agent_fabric.domain import RunId
+            from agentic_concierge.domain import RunId
             return RunId("test-run"), run_dir_path, str(tmp_path / "workspace")
 
         def append_event(self, run_id, kind, payload, step=None):
@@ -400,14 +400,14 @@ async def test_execute_task_auto_wraps_when_cloud_fallback_configured(tmp_path):
     from pathlib import Path
     from unittest.mock import patch as _patch
 
-    from agent_fabric.application.execute_task import execute_task
-    from agent_fabric.config.schema import (
-        CloudFallbackConfig, FabricConfig, ModelConfig, SpecialistConfig,
+    from agentic_concierge.application.execute_task import execute_task
+    from agentic_concierge.config.schema import (
+        CloudFallbackConfig, ConciergeConfig, ModelConfig, SpecialistConfig,
     )
-    from agent_fabric.domain import Task, LLMResponse, ToolCallRequest
-    from agent_fabric.infrastructure.chat.fallback import FallbackChatClient
+    from agentic_concierge.domain import Task, LLMResponse, ToolCallRequest
+    from agentic_concierge.infrastructure.chat.fallback import FallbackChatClient
 
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={
             "quality": ModelConfig(base_url="http://localhost:11434/v1", model="local-m"),
             "cloud": ModelConfig(
@@ -473,7 +473,7 @@ async def test_execute_task_auto_wraps_when_cloud_fallback_configured(tmp_path):
 
     class _Repo:
         def create_run(self):
-            from agent_fabric.domain import RunId
+            from agentic_concierge.domain import RunId
             return RunId("test-run"), run_dir_path, str(tmp_path / "workspace")
         def append_event(self, run_id, kind, payload, step=None):
             events_logged.append({"kind": kind, "payload": payload})
@@ -484,7 +484,7 @@ async def test_execute_task_auto_wraps_when_cloud_fallback_configured(tmp_path):
     task = Task(prompt="do something", specialist_id="engineering")
 
     with _patch(
-        "agent_fabric.infrastructure.chat.build_chat_client",
+        "agentic_concierge.infrastructure.chat.build_chat_client",
         side_effect=_fake_build_chat_client,
     ):
         await execute_task(

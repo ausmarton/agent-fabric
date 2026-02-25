@@ -1,7 +1,7 @@
 """Tests for specialist system prompts: completeness and correctness."""
 from __future__ import annotations
 
-from agent_fabric.infrastructure.specialists.prompts import (
+from agentic_concierge.infrastructure.specialists.prompts import (
     SYSTEM_PROMPT_ENGINEERING,
     SYSTEM_PROMPT_RESEARCH,
 )

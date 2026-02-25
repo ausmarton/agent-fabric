@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_fabric.infrastructure.mcp.augmented_pack import MCPAugmentedPack
+from agentic_concierge.infrastructure.mcp.augmented_pack import MCPAugmentedPack
 
 
 # ---------------------------------------------------------------------------

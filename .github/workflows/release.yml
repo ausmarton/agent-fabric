@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/agent-fabric
+      url: https://pypi.org/p/agentic-concierge
     steps:
       - name: Download dist
         uses: actions/download-artifact@v4
@@ -56,7 +56,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         # Uses OIDC trusted publishing — no API token needed.
         # One-time setup: on PyPI go to project → Publishing → Add a trusted publisher:
-        #   Owner: ausmarton  |  Repo: agent-fabric  |  Workflow: release.yml  |  Env: pypi
+        #   Owner: ausmarton  |  Repo: agentic-concierge  |  Workflow: release.yml  |  Env: pypi
 
   publish-docker:
     name: Build and push Docker image
@@ -122,6 +122,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            --title "agent-fabric ${{ github.ref_name }}" \
+            --title "agentic-concierge ${{ github.ref_name }}" \
             --notes-file release_notes.md \
             dist/*

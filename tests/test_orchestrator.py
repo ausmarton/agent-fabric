@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agent_fabric.application.recruit import llm_recruit_specialist
-from agent_fabric.config import DEFAULT_CONFIG
-from agent_fabric.domain import LLMResponse, ToolCallRequest
-from agent_fabric.infrastructure.ollama import OllamaChatClient
+from agentic_concierge.application.recruit import llm_recruit_specialist
+from agentic_concierge.config import DEFAULT_CONFIG
+from agentic_concierge.domain import LLMResponse, ToolCallRequest
+from agentic_concierge.infrastructure.ollama import OllamaChatClient
 
 
 # ---------------------------------------------------------------------------

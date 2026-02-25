@@ -61,7 +61,7 @@ def skip_if_mcp_not_installed():
     try:
         import mcp  # noqa: F401
     except ImportError:
-        pytest.skip("mcp Python package not installed; run: pip install agent-fabric[mcp]")
+        pytest.skip("mcp Python package not installed; run: pip install agentic-concierge[mcp]")
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ def skip_if_mcp_not_installed():
 
 def _make_fs_server_config(root_dir: str):
     """Build an MCPServerConfig pointing the filesystem server at root_dir."""
-    from agent_fabric.config.schema import MCPServerConfig
+    from agentic_concierge.config.schema import MCPServerConfig
 
     return MCPServerConfig(
         name="fs",
@@ -93,7 +93,7 @@ async def test_list_tools_returns_non_empty(
     skip_if_mcp_not_installed,
 ):
     """MCPSessionManager.list_tools() returns at least one OpenAI-format tool def."""
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     cfg = _make_fs_server_config(str(tmp_path))
     mgr = MCPSessionManager(cfg)
@@ -122,7 +122,7 @@ async def test_owns_tool_prefix(
     skip_if_mcp_not_installed,
 ):
     """MCPSessionManager.owns_tool() correctly identifies prefixed names."""
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     cfg = _make_fs_server_config(str(tmp_path))
     mgr = MCPSessionManager(cfg)
@@ -148,9 +148,9 @@ async def test_read_file_via_call_tool(
     """MCPSessionManager.call_tool() can read a file via the filesystem server."""
     # Write a file in the tmp workspace that the MCP server will read
     sentinel_file = tmp_path / "hello.txt"
-    sentinel_file.write_text("hello from agent-fabric\n")
+    sentinel_file.write_text("hello from agentic-concierge\n")
 
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     cfg = _make_fs_server_config(str(tmp_path))
     mgr = MCPSessionManager(cfg)
@@ -172,7 +172,7 @@ async def test_read_file_via_call_tool(
         await mgr.disconnect()
 
     assert "result" in result, f"Expected 'result' key, got: {result}"
-    assert "hello from agent-fabric" in result["result"], (
+    assert "hello from agentic-concierge" in result["result"], (
         f"Expected file content in result, got: {result['result']!r}"
     )
 
@@ -184,7 +184,7 @@ async def test_unknown_tool_returns_error(
     skip_if_mcp_not_installed,
 ):
     """call_tool() with an unknown bare name returns an error dict (isError=True)."""
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     cfg = _make_fs_server_config(str(tmp_path))
     mgr = MCPSessionManager(cfg)
@@ -205,7 +205,7 @@ async def test_reconnect_after_disconnect(
     skip_if_mcp_not_installed,
 ):
     """MCPSessionManager can be reconnected after disconnecting."""
-    from agent_fabric.infrastructure.mcp.session import MCPSessionManager
+    from agentic_concierge.infrastructure.mcp.session import MCPSessionManager
 
     cfg = _make_fs_server_config(str(tmp_path))
     mgr = MCPSessionManager(cfg)

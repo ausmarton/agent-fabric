@@ -12,13 +12,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_fabric.application.execute_task import execute_task
-from agent_fabric.config import FabricConfig, ModelConfig, load_config
-from agent_fabric.config.schema import DEFAULT_CONFIG
-from agent_fabric.domain import LLMResponse, RunId, RunResult, Task, ToolCallRequest
-from agent_fabric.infrastructure.llm_discovery import ResolvedLLM, resolve_llm
-from agent_fabric.infrastructure.workspace import FileSystemRunRepository
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
+from agentic_concierge.application.execute_task import execute_task
+from agentic_concierge.config import ConciergeConfig, ModelConfig, load_config
+from agentic_concierge.config.schema import DEFAULT_CONFIG
+from agentic_concierge.domain import LLMResponse, RunId, RunResult, Task, ToolCallRequest
+from agentic_concierge.infrastructure.llm_discovery import ResolvedLLM, resolve_llm
+from agentic_concierge.infrastructure.workspace import FileSystemRunRepository
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry
 
 
 # ---- ChatClient port: execute_task uses only chat() with OpenAI-style args ----
@@ -88,7 +88,7 @@ def test_config_base_url_and_model_are_backend_agnostic():
     assert mc.base_url.startswith("http")
     assert "/v1" in mc.base_url or mc.base_url.rstrip("/").endswith("11434")
     assert isinstance(mc.model, str) and len(mc.model) > 0
-    custom = FabricConfig(
+    custom = ConciergeConfig(
         models={"x": ModelConfig(base_url="http://localhost:8000/v1", model="my-model")},
         specialists=DEFAULT_CONFIG.specialists,
     )
@@ -101,10 +101,10 @@ def test_config_base_url_and_model_are_backend_agnostic():
 
 def test_api_run_calls_resolve_llm():
     """API /run calls resolve_llm (via asyncio.to_thread) so backend/model are discovered."""
-    from agent_fabric.interfaces.http_api import app
+    from agentic_concierge.interfaces.http_api import app
     from fastapi.testclient import TestClient
 
-    cfg = FabricConfig(
+    cfg = ConciergeConfig(
         models={"q": ModelConfig(base_url="http://127.0.0.1:19999/v1", model="test")},
         specialists=DEFAULT_CONFIG.specialists,
         local_llm_ensure_available=True,
@@ -116,9 +116,9 @@ def test_api_run_calls_resolve_llm():
         model="test",
         model_config=ModelConfig(base_url="http://127.0.0.1:19999/v1", model="test"),
     )
-    with patch("agent_fabric.interfaces.http_api.load_config", return_value=cfg):
-        with patch("agent_fabric.interfaces.http_api.resolve_llm", return_value=resolved) as resolve:
-            with patch("agent_fabric.interfaces.http_api.execute_task", new_callable=AsyncMock) as run_task:
+    with patch("agentic_concierge.interfaces.http_api.load_config", return_value=cfg):
+        with patch("agentic_concierge.interfaces.http_api.resolve_llm", return_value=resolved) as resolve:
+            with patch("agentic_concierge.interfaces.http_api.execute_task", new_callable=AsyncMock) as run_task:
                 run_task.return_value = RunResult(
                     run_id=RunId("test-id"),
                     run_dir="/tmp/r",
@@ -136,19 +136,19 @@ def test_api_run_calls_resolve_llm():
 
 def test_api_run_skips_ensure_llm_available_when_opted_out():
     """When local_llm_ensure_available is False, resolve_llm does not call ensure_llm_available."""
-    from agent_fabric.interfaces.http_api import app
+    from agentic_concierge.interfaces.http_api import app
     from fastapi.testclient import TestClient
 
-    cfg = FabricConfig(
+    cfg = ConciergeConfig(
         models={"q": ModelConfig(base_url="http://127.0.0.1:19998/v1", model="test")},
         specialists=DEFAULT_CONFIG.specialists,
         local_llm_ensure_available=False,
         local_llm_start_cmd=[],
     )
-    with patch("agent_fabric.interfaces.http_api.load_config", return_value=cfg):
-        with patch("agent_fabric.infrastructure.llm_bootstrap.ensure_llm_available") as ensure:
-            with patch("agent_fabric.infrastructure.llm_discovery.discover_ollama_models", return_value=[{"name": "test", "model": "test"}]):
-                with patch("agent_fabric.interfaces.http_api.execute_task", new_callable=AsyncMock) as run_task:
+    with patch("agentic_concierge.interfaces.http_api.load_config", return_value=cfg):
+        with patch("agentic_concierge.infrastructure.llm_bootstrap.ensure_llm_available") as ensure:
+            with patch("agentic_concierge.infrastructure.llm_discovery.discover_ollama_models", return_value=[{"name": "test", "model": "test"}]):
+                with patch("agentic_concierge.interfaces.http_api.execute_task", new_callable=AsyncMock) as run_task:
                     run_task.return_value = RunResult(
                         run_id=RunId("test-id"),
                         run_dir="/tmp/r",
@@ -168,7 +168,7 @@ def test_api_run_skips_ensure_llm_available_when_opted_out():
 
 def test_run_directory_created_under_workspace_root_only(tmp_path):
     """Run dir and workspace are created only under workspace_root/runs/<id>/; no temp files elsewhere."""
-    from agent_fabric.infrastructure.workspace.run_directory import create_run_directory
+    from agentic_concierge.infrastructure.workspace.run_directory import create_run_directory
 
     root = Path(tmp_path) / "fabric_root"
     root.mkdir(parents=True)

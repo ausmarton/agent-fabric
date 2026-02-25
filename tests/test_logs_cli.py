@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agent_fabric.interfaces.cli import app
-from agent_fabric.infrastructure.workspace.run_reader import (
+from agentic_concierge.interfaces.cli import app
+from agentic_concierge.infrastructure.workspace.run_reader import (
     RunSummary,
     list_runs,
     read_run_events,

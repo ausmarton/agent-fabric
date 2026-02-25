@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig
-from agent_fabric.infrastructure.specialists.containerised import ContainerisedSpecialistPack
-from agent_fabric.infrastructure.specialists.registry import ConfigSpecialistRegistry
+from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig
+from agentic_concierge.infrastructure.specialists.containerised import ContainerisedSpecialistPack
+from agentic_concierge.infrastructure.specialists.registry import ConfigSpecialistRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +336,7 @@ async def test_finish_task_not_intercepted():
 
 def test_registry_wraps_pack_with_containerised_when_container_image_set():
     """ConfigSpecialistRegistry.get_pack() wraps with ContainerisedSpecialistPack."""
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"quality": ModelConfig(base_url="http://localhost:11434/v1", model="test")},
         specialists={
             "engineering": SpecialistConfig(
@@ -355,7 +355,7 @@ def test_registry_wraps_pack_with_containerised_when_container_image_set():
 
 def test_registry_no_wrap_when_container_image_not_set():
     """ConfigSpecialistRegistry.get_pack() returns plain pack when container_image is None."""
-    from agent_fabric.config import load_config
+    from agentic_concierge.config import load_config
     registry = ConfigSpecialistRegistry(load_config())
     pack = registry.get_pack("engineering", "/tmp", network_allowed=False)
     assert not isinstance(pack, ContainerisedSpecialistPack)
@@ -372,10 +372,10 @@ def test_registry_container_image_wraps_after_mcp():
     sys.modules.setdefault("mcp.client.stdio", MagicMock())
     sys.modules.setdefault("mcp.client.sse", MagicMock())
 
-    from agent_fabric.config.schema import MCPServerConfig
-    from agent_fabric.infrastructure.mcp.augmented_pack import MCPAugmentedPack
+    from agentic_concierge.config.schema import MCPServerConfig
+    from agentic_concierge.infrastructure.mcp.augmented_pack import MCPAugmentedPack
 
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"quality": ModelConfig(base_url="http://localhost:11434/v1", model="test")},
         specialists={
             "engineering": SpecialistConfig(

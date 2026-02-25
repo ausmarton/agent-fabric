@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import pytest
-from agent_fabric.application.recruit import recruit_specialist
-from agent_fabric.config import DEFAULT_CONFIG
-from agent_fabric.config.schema import FabricConfig, SpecialistConfig
+from agentic_concierge.application.recruit import recruit_specialist
+from agentic_concierge.config import DEFAULT_CONFIG
+from agentic_concierge.config.schema import ConciergeConfig, SpecialistConfig
 
 
 @pytest.mark.parametrize("prompt,expected", [
@@ -31,9 +31,9 @@ def test_fallback_routing(prompt, expected):
     assert recruit_specialist(prompt, DEFAULT_CONFIG).specialist_id == expected
 
 
-def _make_tie_config(first: str, second: str) -> FabricConfig:
+def _make_tie_config(first: str, second: str) -> ConciergeConfig:
     """Two specialists sharing the same keyword; order controls tie-break."""
-    return FabricConfig(
+    return ConciergeConfig(
         models=DEFAULT_CONFIG.models,
         specialists={
             first: SpecialistConfig(description=first, keywords=["foo"], workflow=first),

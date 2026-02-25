@@ -16,12 +16,12 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
 import uvicorn
-from agent_fabric.application.execute_task import execute_task
-from agent_fabric.config import DEFAULT_CONFIG, FabricConfig, ModelConfig
-from agent_fabric.domain import Task
-from agent_fabric.infrastructure.ollama import OllamaChatClient
-from agent_fabric.infrastructure.workspace import FileSystemRunRepository
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
+from agentic_concierge.application.execute_task import execute_task
+from agentic_concierge.config import DEFAULT_CONFIG, ConciergeConfig, ModelConfig
+from agentic_concierge.domain import Task
+from agentic_concierge.infrastructure.ollama import OllamaChatClient
+from agentic_concierge.infrastructure.workspace import FileSystemRunRepository
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry
 
 from tests.mock_llm_server import app as mock_llm_app
 
@@ -31,11 +31,11 @@ PORT = 18997
 def main():
     print("Starting mock LLM server on http://127.0.0.1:%s ..." % PORT)
     base_url = "http://127.0.0.1:%s/v1" % PORT
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"quality": ModelConfig(base_url=base_url, model="mock", timeout_s=10.0)},
         specialists=DEFAULT_CONFIG.specialists,
     )
-    workspace_root = os.path.join(REPO_ROOT, ".fabric")
+    workspace_root = os.path.join(REPO_ROOT, ".concierge")
     run_repository = FileSystemRunRepository(workspace_root=workspace_root)
     specialist_registry = ConfigSpecialistRegistry(config)
     chat_client = OllamaChatClient(base_url=base_url, timeout_s=10.0)

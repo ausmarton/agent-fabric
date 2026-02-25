@@ -38,9 +38,9 @@ htmlcov/
 *~
 .DS_Store
 
-# Agent fabric runtime
-.fabric/
-fabric_workspace/
+# Agentic concierge runtime
+.concierge/
+concierge_workspace/
 
 # Distribution
 *.dist-info/

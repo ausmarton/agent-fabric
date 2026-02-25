@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to agent-fabric are documented in this file.
+All notable changes to agentic-concierge are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -13,7 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.1.0] — 2026-02-26
 
-Initial public release of agent-fabric, covering Phases 1–8.
+Initial public release of agentic-concierge, covering Phases 1–8.
 
 ### Added
 
@@ -21,7 +21,7 @@ Initial public release of agent-fabric, covering Phases 1–8.
 - Native OpenAI tool-calling protocol (not JSON-in-content); `finish_task` as the terminal signal.
 - `engineering` specialist pack: plan → implement → test → review → iterate loop.
 - `research` specialist pack: scope → search → screen → extract → synthesise → critique loop.
-- CLI (`fabric run`) and HTTP API (`POST /run`) entry points.
+- CLI (`concierge run`) and HTTP API (`POST /run`) entry points.
 - Local Ollama integration with automatic server start (`local_llm_ensure_available`).
 - Sandboxed workspace per run; `finish_task` payload validation.
 - Structured logging throughout; scoped exception handling in tool execution.
@@ -42,7 +42,7 @@ Initial public release of agent-fabric, covering Phases 1–8.
 - Generic OpenAI-compatible chat client (`ModelConfig.backend`); backends: `ollama`, `openai`, `litellm`, `vllm`, `llamacpp`.
 - LLM-driven orchestrator routing with keyword fallback; `routing_model_key` config.
 - `finish_task` structural quality gate: requires at least one tool call before termination.
-- `fabric logs list` and `fabric logs show` CLI subcommands.
+- `concierge logs list` and `concierge logs show` CLI subcommands.
 - OpenTelemetry tracing (optional `[otel]` dep; no-op shim when absent).
 
 **Phase 5 — MCP tool server support**
@@ -53,7 +53,7 @@ Initial public release of agent-fabric, covering Phases 1–8.
 - Optional `[mcp]` dep group; clear `RuntimeError` if `mcp_servers` configured without the dep.
 
 **Phase 6 — Run index, containerisation, and cloud fallback**
-- Persistent cross-run index (`run_index.jsonl`); `fabric logs search <query>` CLI subcommand.
+- Persistent cross-run index (`run_index.jsonl`); `concierge logs search <query>` CLI subcommand.
 - Real MCP filesystem server smoke test.
 - Containerised workspace isolation via Podman (`ContainerisedSpecialistPack`; `:Z` SELinux label).
 - Cloud LLM fallback (`FallbackPolicy`: `no_tool_calls`, `malformed_args`, `always`); `CloudFallbackConfig`; `cloud_fallback` runlog events.
@@ -71,18 +71,18 @@ Initial public release of agent-fabric, covering Phases 1–8.
 - `_merge_parallel_payloads`: per-pack results with graceful error capture.
 
 **Phase 9 — UX and production hardening**
-- `fabric run --stream` (`-s`): real-time terminal rendering of all run events (tool calls, LLM steps, errors) using Rich.
+- `concierge run --stream` (`-s`): real-time terminal rendering of all run events (tool calls, LLM steps, errors) using Rich.
 - Corrective re-prompt recovery: when the LLM returns plain text instead of a tool call, up to 2 automatic re-prompts nudge it back on track before falling back to text-as-payload.
 - Improved sandbox error messages: absolute-path violations now say "use a relative path (e.g. 'app.py')" instead of the cryptic "must be within sandbox root".
 - Engineering system prompt explicitly instructs the model to use relative paths.
-- Per-IP HTTP rate limiting: `FABRIC_RATE_LIMIT=<n>` env var (requests per minute); `GET /health` always exempt; `429 Too Many Requests` with `Retry-After` header.
+- Per-IP HTTP rate limiting: `CONCIERGE_RATE_LIMIT=<n>` env var (requests per minute); `GET /health` always exempt; `429 Too Many Requests` with `Retry-After` header.
 
 ### Infrastructure
 - Hexagonal (ports-and-adapters) architecture: `domain` → `application` → `infrastructure` → `interfaces`.
 - MIT licence; full contributor guide (`CONTRIBUTING.md`).
 - GitHub Actions CI: lint (ruff), test matrix (Python 3.10/3.11/3.12), security audit (pip-audit), build check.
 - Release workflow: automated PyPI publish (OIDC trusted publishing) + Docker image to GHCR on version tags.
-- Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agent-fabric + model-pull).
+- Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agentic-concierge + model-pull).
 
-[Unreleased]: https://github.com/ausmarton/agent-fabric/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/ausmarton/agent-fabric/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ausmarton/agentic-concierge/releases/tag/v0.1.0

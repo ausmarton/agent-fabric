@@ -1,4 +1,4 @@
-# agent-fabric: Architecture Decision Records
+# agentic-concierge: Architecture Decision Records
 
 **Purpose:** Records of significant technical decisions — *what* was decided, *why*, and
 *what it means for future work*. Prevents re-litigating settled questions. When a decision

@@ -10,7 +10,7 @@ Run these passes to ensure Phase 1 is working and you can demonstrate and use th
 
 ```bash
 pip install -e ".[dev]"
-FABRIC_SKIP_REAL_LLM=1 pytest tests/ -v
+CONCIERGE_SKIP_REAL_LLM=1 pytest tests/ -v
 ```
 
 **Expected:** 38 passed, 4 skipped (the 4 real-LLM E2E tests skip).
@@ -25,21 +25,21 @@ FABRIC_SKIP_REAL_LLM=1 pytest tests/ -v
 
 1. **CLI help:**
    ```bash
-   fabric --help
-   fabric run --help
-   fabric serve --help
+   concierge --help
+   concierge run --help
+   concierge serve --help
    ```
    Expected: help text for each command.
 
 2. **Run dir creation:** Use a config that does not start an LLM (so the run fails fast at connection). Example: create a JSON config with `local_llm_ensure_available: false` and `base_url` pointing at an unreachable port (e.g. `http://127.0.0.1:19999/v1`). Then:
    ```bash
-   export FABRIC_CONFIG_PATH=/path/to/that/config.json
-   export FABRIC_WORKSPACE=/tmp/fabric_verify_ws
-   rm -rf /tmp/fabric_verify_ws
-   fabric run "list files" --pack engineering
+   export CONCIERGE_CONFIG_PATH=/path/to/that/config.json
+   export CONCIERGE_WORKSPACE=/tmp/concierge_verify_ws
+   rm -rf /tmp/concierge_verify_ws
+   concierge run "list files" --pack engineering
    ```
    Expected: exit code 1 (connection error). Check:
-   - `$FABRIC_WORKSPACE/runs/` contains one run directory (e.g. `20260223-171146-xxxxx`).
+   - `$CONCIERGE_WORKSPACE/runs/` contains one run directory (e.g. `20260223-171146-xxxxx`).
    - That directory contains `runlog.jsonl` and `workspace/`.
 
 **If this fails:** Check config loading and that `execute_task` is invoked (run dir is created at the start of the task).
@@ -50,7 +50,7 @@ FABRIC_SKIP_REAL_LLM=1 pytest tests/ -v
 
 **Goal:** API serves; `/health` returns 200; `POST /run` without a working LLM returns 503.
 
-1. Start the API (in one terminal): `fabric serve`
+1. Start the API (in one terminal): `concierge serve`
 2. In another terminal:
    ```bash
    curl -s http://127.0.0.1:8787/health
@@ -71,7 +71,7 @@ FABRIC_SKIP_REAL_LLM=1 pytest tests/ -v
 
 **Goal:** All 42 tests run and pass, including the real-LLM E2E tests. This is required to claim the system is integrated and working.
 
-**Prerequisite:** Ollama (or another OpenAI-compatible server) running and at least one model available. For default config: `ollama serve` and `ollama pull qwen2.5:7b` (or `qwen2.5:14b`). If you use another model, set `FABRIC_CONFIG_PATH` to a config that has that model.
+**Prerequisite:** Ollama (or another OpenAI-compatible server) running and at least one model available. For default config: `ollama serve` and `ollama pull qwen2.5:7b` (or `qwen2.5:14b`). If you use another model, set `CONCIERGE_CONFIG_PATH` to a config that has that model.
 
 ```bash
 python scripts/validate_full.py
@@ -98,11 +98,11 @@ python scripts/validate_full.py
 
 2. **CLI run:**
    ```bash
-   fabric run "Create a file hello.txt with content Hello World. Then list the workspace." --pack engineering
+   concierge run "Create a file hello.txt with content Hello World. Then list the workspace." --pack engineering
    ```
-   Expected: run completes; JSON output with `"action": "final"` and artifacts; run dir path printed. Inspect `.fabric/runs/<id>/workspace/` for `hello.txt` and `runlog.jsonl` for `tool_call` / `tool_result` events.
+   Expected: run completes; JSON output with `"action": "final"` and artifacts; run dir path printed. Inspect `.concierge/runs/<id>/workspace/` for `hello.txt` and `runlog.jsonl` for `tool_call` / `tool_result` events.
 
-3. **API run (optional):** With `fabric serve` running in another terminal:
+3. **API run (optional):** With `concierge serve` running in another terminal:
    ```bash
    curl -s -X POST http://127.0.0.1:8787/run -H "Content-Type: application/json" -d '{"prompt":"Create a file ok.txt with content OK","pack":"engineering"}' | jq .
    ```
@@ -118,6 +118,6 @@ python scripts/validate_full.py
 | 2 | No | CLI help; run dir and runlog/workspace created |
 | 3 | No | API health 200; POST /run → 503 when no LLM |
 | 4 | **Yes** | Full validation: all 42 tests run and pass |
-| 5 | **Yes** | Live demo: verify_working_real.py and fabric run complete successfully |
+| 5 | **Yes** | Live demo: verify_working_real.py and concierge run complete successfully |
 
 Run passes 1–3 anytime (e.g. in CI without an LLM). Run passes 4 and 5 when you have a real LLM and model available to demonstrate and use the system end-to-end.

@@ -10,7 +10,7 @@
 
 ## Config
 
-Default config already has `local_llm_ensure_available: true`. In a custom config (e.g. `FABRIC_CONFIG_PATH`):
+Default config already has `local_llm_ensure_available: true`. In a custom config (e.g. `CONCIERGE_CONFIG_PATH`):
 
 ```json
 {

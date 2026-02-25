@@ -68,7 +68,7 @@ Each task ends with a **Verification** line so you can confirm before moving on.
 - **C.2** Use the new config field names (`local_llm_ensure_available`, `local_llm_start_cmd`, `local_llm_start_timeout_s`) in code. Remove use of `auto_start_llm` in favour of `local_llm_ensure_available`.
 - **C.3** Error messages: phrase as “Local LLM (Ollama) is the default; we couldn’t start or reach it.” Not “optional start failed.”
 
-**Verification:** With default config, `fabric run "list files" --pack engineering` (with Ollama not running) either starts Ollama and proceeds, or fails with a clear “local LLM” message. With `local_llm_ensure_available: false`, fabric does not start the server and fails at first LLM call as today. `pytest tests/ -v` passes.
+**Verification:** With default config, `concierge run "list files" --pack engineering` (with Ollama not running) either starts Ollama and proceeds, or fails with a clear “local LLM” message. With `local_llm_ensure_available: false`, fabric does not start the server and fails at first LLM call as today. `pytest tests/ -v` passes.
 
 ---
 
@@ -129,7 +129,7 @@ Each task ends with a **Verification** line so you can confirm before moving on.
 1. **A** → B → C → D → E → F → G.  
    (A is docs-only; B–C are code + config; D–F are docs + tests; G is design doc.)
 2. After **B**: run `pytest tests/test_config.py -v`.
-3. After **C**: run `pytest tests/ -v`; optionally run `fabric run "list files" --pack engineering` with and without Ollama to confirm behaviour.
+3. After **C**: run `pytest tests/ -v`; optionally run `concierge run "list files" --pack engineering` with and without Ollama to confirm behaviour.
 4. After **E**: run full `pytest tests/ -v`.
 5. After each of **D, F, G**: quick read/grep to confirm wording.
 

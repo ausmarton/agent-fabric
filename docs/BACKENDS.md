@@ -19,10 +19,10 @@ The agent fabric is **not** tied to Ollama. It talks to any backend that exposes
   - **Installs the right LLM backend** for that environment (Ollama, or llama.cpp server) in a **consistent, repeatable way** (same install path or package manager per OS).
   - Installs the fabric (venv, `pip install -e .`).
   - Optionally **pulls or downloads a default model** (or writes config to use an existing one).
-  - Writes **config** (e.g. `base_url`, `model`, `local_llm_start_cmd`) so `fabric run` works.
+  - Writes **config** (e.g. `base_url`, `model`, `local_llm_start_cmd`) so `concierge run` works.
 - **LLM runs on the host** (no container for inference) so we get best performance and full use of GPU/drivers.
 - **Idempotent:** Running the bootstrap again on an already-set-up machine should be safe and leave the same state.
-- Result: clone → run bootstrap → **one command** (or two) → machine in the same state as every other; `fabric run` uses the best available hardware.
+- Result: clone → run bootstrap → **one command** (or two) → machine in the same state as every other; `concierge run` uses the best available hardware.
 
 **Native vs containers**
 

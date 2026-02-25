@@ -11,13 +11,13 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from agent_fabric.application.execute_task import execute_task
-from agent_fabric.config import DEFAULT_CONFIG, FabricConfig, load_config
-from agent_fabric.config import ModelConfig
-from agent_fabric.domain import LLMResponse, RunId, RunResult, Task, ToolCallRequest
-from agent_fabric.infrastructure.ollama import OllamaChatClient
-from agent_fabric.infrastructure.workspace import FileSystemRunRepository
-from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
+from agentic_concierge.application.execute_task import execute_task
+from agentic_concierge.config import DEFAULT_CONFIG, ConciergeConfig, load_config
+from agentic_concierge.config import ModelConfig
+from agentic_concierge.domain import LLMResponse, RunId, RunResult, Task, ToolCallRequest
+from agentic_concierge.infrastructure.ollama import OllamaChatClient
+from agentic_concierge.infrastructure.workspace import FileSystemRunRepository
+from agentic_concierge.infrastructure.specialists import ConfigSpecialistRegistry
 
 try:
     from tests.mock_llm_server import app as mock_llm_app
@@ -136,7 +136,7 @@ async def test_execute_task_research_pack(temp_workspace_root):
 
 
 def test_api_health_returns_ok():
-    from agent_fabric.interfaces.http_api import app
+    from agentic_concierge.interfaces.http_api import app
     client = TestClient(app)
     r = client.get("/health")
     assert r.status_code == 200
@@ -146,8 +146,8 @@ def test_api_health_returns_ok():
 def test_api_run_accepts_prompt():
     """API POST /run accepts prompt and returns 200 when execute_task is mocked."""
     from unittest.mock import MagicMock
-    from agent_fabric.interfaces.http_api import app
-    cfg = FabricConfig(
+    from agentic_concierge.interfaces.http_api import app
+    cfg = ConciergeConfig(
         models=DEFAULT_CONFIG.models,
         specialists=DEFAULT_CONFIG.specialists,
         local_llm_ensure_available=False,
@@ -156,9 +156,9 @@ def test_api_run_accepts_prompt():
     # without a live Ollama server.
     mock_model_cfg = next(iter(cfg.models.values()))
     mock_resolved = MagicMock(model_config=mock_model_cfg, base_url=mock_model_cfg.base_url)
-    with patch("agent_fabric.interfaces.http_api.load_config", return_value=cfg), \
-         patch("agent_fabric.interfaces.http_api.resolve_llm", return_value=mock_resolved), \
-         patch("agent_fabric.interfaces.http_api.execute_task", new_callable=AsyncMock) as mock_run:
+    with patch("agentic_concierge.interfaces.http_api.load_config", return_value=cfg), \
+         patch("agentic_concierge.interfaces.http_api.resolve_llm", return_value=mock_resolved), \
+         patch("agentic_concierge.interfaces.http_api.execute_task", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = RunResult(
             run_id=RunId("test"), run_dir="/tmp/x", workspace_path="/tmp/x/w",
             specialist_id="engineering", model_name="qwen2.5:7b",
@@ -189,7 +189,7 @@ async def test_e2e_real_http_engineering_run(temp_workspace_root):
         pytest.skip("mock_llm_server not importable")
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}/v1"
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={
             "quality": ModelConfig(base_url=base_url, model="mock", timeout_s=5.0),
         },
@@ -240,12 +240,12 @@ async def test_e2e_real_http_engineering_run(temp_workspace_root):
     assert "tool_result" in kinds
 
 
-# ---- Real LLM tests (skip when no server or FABRIC_SKIP_REAL_LLM=1) ----
+# ---- Real LLM tests (skip when no server or CONCIERGE_SKIP_REAL_LLM=1) ----
 
 
 def _skip_if_no_real_llm():
     if SKIP_REAL_LLM:
-        pytest.skip("FABRIC_SKIP_REAL_LLM is set")
+        pytest.skip("CONCIERGE_SKIP_REAL_LLM is set")
     if real_llm_reachable() is None:
         pytest.skip("Real LLM not reachable (start Ollama and pull a model to run this test)")
 
@@ -343,7 +343,7 @@ async def test_execute_task_research_pack_real_llm(temp_workspace_root):
 def test_api_post_run_real_llm():
     """API POST /run with real LLM returns 200 and expected shape. Skips if no server."""
     _skip_if_no_real_llm()
-    from agent_fabric.interfaces.http_api import app
+    from agentic_concierge.interfaces.http_api import app
     client = TestClient(app)
     r = client.post(
         "/run",
@@ -378,7 +378,7 @@ def test_verify_working_real_script():
         capture_output=True,
         text=True,
         timeout=600,
-        env={**__import__("os").environ, "FABRIC_WORKSPACE": str(repo_root / ".fabric")},
+        env={**__import__("os").environ, "CONCIERGE_WORKSPACE": str(repo_root / ".concierge")},
     )
     if result.returncode != 0 and (
         "404" in result.stderr or "404" in result.stdout

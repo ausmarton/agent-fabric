@@ -1,6 +1,6 @@
 """Tests for the per-IP sliding-window rate limiting middleware.
 
-The middleware is active only when the FABRIC_RATE_LIMIT environment variable
+The middleware is active only when the CONCIERGE_RATE_LIMIT environment variable
 is set to a positive integer (requests per minute).  When inactive, all
 requests pass through unchanged.
 
@@ -12,7 +12,7 @@ Middleware order (last registered = outermost):
 This means:
 - A rate-limited request returns 429 before reaching auth or the handler.
 - A non-rate-limited request continues to auth (which we can short-circuit
-  with FABRIC_API_KEY set so the handler is never reached).
+  with CONCIERGE_API_KEY set so the handler is never reached).
 """
 from __future__ import annotations
 
@@ -35,32 +35,32 @@ def _client(rate_limit: str | None = None, api_key: str = "test-secret"):
     ``api_key`` is set by default so auth middleware rejects requests before
     they reach the handler — this avoids any real Ollama / LLM connections.
     """
-    from agent_fabric.interfaces import http_api
+    from agentic_concierge.interfaces import http_api
     http_api._rate_limit_windows.clear()
 
-    from agent_fabric.interfaces.http_api import app
-    env: dict = {"FABRIC_API_KEY": api_key}
+    from agentic_concierge.interfaces.http_api import app
+    env: dict = {"CONCIERGE_API_KEY": api_key}
     if rate_limit is not None:
-        env["FABRIC_RATE_LIMIT"] = rate_limit
+        env["CONCIERGE_RATE_LIMIT"] = rate_limit
     with patch.dict(os.environ, env, clear=False):
         if rate_limit is None:
-            os.environ.pop("FABRIC_RATE_LIMIT", None)
+            os.environ.pop("CONCIERGE_RATE_LIMIT", None)
         yield TestClient(app, raise_server_exceptions=False)
 
 
 # ---------------------------------------------------------------------------
-# Rate limiting disabled (no FABRIC_RATE_LIMIT)
+# Rate limiting disabled (no CONCIERGE_RATE_LIMIT)
 # ---------------------------------------------------------------------------
 
 def test_health_accessible_no_rate_limit():
-    """/health passes when FABRIC_RATE_LIMIT is not set."""
+    """/health passes when CONCIERGE_RATE_LIMIT is not set."""
     with _client() as client:
         r = client.get("/health")
     assert r.status_code == 200
 
 
 def test_many_health_requests_no_rate_limit():
-    """Many /health requests succeed when FABRIC_RATE_LIMIT is not set."""
+    """Many /health requests succeed when CONCIERGE_RATE_LIMIT is not set."""
     with _client() as client:
         for _ in range(10):
             r = client.get("/health")
@@ -129,7 +129,7 @@ def test_rate_limit_stream_endpoint_also_rate_limited():
 
 
 def test_rate_limit_invalid_value_passes_through():
-    """Non-integer FABRIC_RATE_LIMIT is ignored (middleware disabled)."""
+    """Non-integer CONCIERGE_RATE_LIMIT is ignored (middleware disabled)."""
     with _client(rate_limit="not-a-number") as client:
         # All requests fall through to auth (401), no 429
         for _ in range(5):
@@ -138,7 +138,7 @@ def test_rate_limit_invalid_value_passes_through():
 
 
 def test_rate_limit_zero_passes_through():
-    """FABRIC_RATE_LIMIT=0 is treated as disabled."""
+    """CONCIERGE_RATE_LIMIT=0 is treated as disabled."""
     with _client(rate_limit="0") as client:
         for _ in range(5):
             r = client.post("/run", json={"prompt": "hi"})

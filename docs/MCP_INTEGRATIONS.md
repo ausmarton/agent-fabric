@@ -1,15 +1,15 @@
-# agent-fabric: MCP Server Integrations
+# agentic-concierge: MCP Server Integrations
 
-This document shows how to wire real MCP (Model Context Protocol) tool servers into agent-fabric specialist packs. The Phase 5 infrastructure (`MCPAugmentedPack`, `MCPSessionManager`) handles the session lifecycle transparently — you only need to add config entries.
+This document shows how to wire real MCP (Model Context Protocol) tool servers into agentic-concierge specialist packs. The Phase 5 infrastructure (`MCPAugmentedPack`, `MCPSessionManager`) handles the session lifecycle transparently — you only need to add config entries.
 
 ---
 
 ## Quick start
 
-MCP servers are attached per-specialist using `mcp_servers:` in your `FabricConfig`. Tools from each server are merged into the pack's tool definitions and prefixed as `mcp__<name>__<tool>` to avoid collisions.
+MCP servers are attached per-specialist using `mcp_servers:` in your `ConciergeConfig`. Tools from each server are merged into the pack's tool definitions and prefixed as `mcp__<name>__<tool>` to avoid collisions.
 
 ```yaml
-# ~/.fabric/config.yaml  (or path in FABRIC_CONFIG_PATH)
+# ~/.concierge/config.yaml  (or path in CONCIERGE_CONFIG_PATH)
 
 models:
   fast:
@@ -195,7 +195,7 @@ specialists:
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `RuntimeError: mcp package not installed` | The `mcp` Python package is absent | `pip install agent-fabric[mcp]` |
+| `RuntimeError: mcp package not installed` | The `mcp` Python package is absent | `pip install agentic-concierge[mcp]` |
 | `RuntimeError: Failed to start Podman container` | Podman not installed or image not pulled | Install Podman; `podman pull <image>` |
 | MCP tool returns `{"error": "..."}` | Tool call failed on the server | Check the MCP server logs; verify auth tokens and API permissions |
 | All tools timeout | Server subprocess didn't start | Check `npx` is in PATH; check `GITHUB_TOKEN` is valid |

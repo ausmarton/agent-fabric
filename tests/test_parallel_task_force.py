@@ -7,7 +7,7 @@ Tests cover:
 - task_force_mode='parallel' triggers the parallel path in execute_task
 - task_force_mode='sequential' (default) still works as before
 - Single-specialist task with mode='parallel' falls through to sequential
-- FabricConfig.task_force_mode field defaults to 'sequential'
+- ConciergeConfig.task_force_mode field defaults to 'sequential'
 """
 
 from __future__ import annotations
@@ -18,11 +18,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_fabric.application.execute_task import (
+from agentic_concierge.application.execute_task import (
     _emit,
     _merge_parallel_payloads,
 )
-from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig
+from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig
 
 
 # ---------------------------------------------------------------------------
@@ -126,11 +126,11 @@ def test_emit_drops_when_queue_full():
 
 
 # ---------------------------------------------------------------------------
-# FabricConfig.task_force_mode field
+# ConciergeConfig.task_force_mode field
 # ---------------------------------------------------------------------------
 
 def test_task_force_mode_defaults_to_sequential():
-    cfg = FabricConfig(
+    cfg = ConciergeConfig(
         models={"fast": ModelConfig(base_url="http://x/v1", model="m")},
         specialists={"eng": SpecialistConfig(description="d", workflow="engineering")},
     )
@@ -138,7 +138,7 @@ def test_task_force_mode_defaults_to_sequential():
 
 
 def test_task_force_mode_accepts_parallel():
-    cfg = FabricConfig(
+    cfg = ConciergeConfig(
         models={"fast": ModelConfig(base_url="http://x/v1", model="m")},
         specialists={"eng": SpecialistConfig(description="d", workflow="engineering")},
         task_force_mode="parallel",
@@ -190,10 +190,10 @@ def _make_stub_pack(specialist_id: str, summary: str) -> MagicMock:
 @pytest.mark.asyncio
 async def test_parallel_task_force_runs_both_packs():
     """Both specialist packs run and their payloads appear in pack_results."""
-    from agent_fabric.application.execute_task import execute_task
-    from agent_fabric.domain import Task, RunId
-    from agent_fabric.config.schema import FabricConfig, ModelConfig, SpecialistConfig
-    from agent_fabric.domain.models import LLMResponse, ToolCallRequest
+    from agentic_concierge.application.execute_task import execute_task
+    from agentic_concierge.domain import Task, RunId
+    from agentic_concierge.config.schema import ConciergeConfig, ModelConfig, SpecialistConfig
+    from agentic_concierge.domain.models import LLMResponse, ToolCallRequest
 
     task = Task(
         prompt="Do two things",
@@ -202,7 +202,7 @@ async def test_parallel_task_force_runs_both_packs():
         network_allowed=False,
     )
 
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"fast": ModelConfig(base_url="http://x/v1", model="m")},
         specialists={
             "engineering": SpecialistConfig(description="eng", workflow="engineering"),
@@ -265,8 +265,8 @@ async def test_parallel_task_force_runs_both_packs():
     registry = MagicMock()
     registry.get_pack.side_effect = _get_pack
 
-    with patch("agent_fabric.application.execute_task.llm_recruit_specialist") as mock_recruit:
-        from agent_fabric.application.recruit import RecruitmentResult
+    with patch("agentic_concierge.application.execute_task.llm_recruit_specialist") as mock_recruit:
+        from agentic_concierge.application.recruit import RecruitmentResult
         mock_recruit.return_value = RecruitmentResult(
             specialist_ids=["engineering", "research"],
             required_capabilities=["code_execution", "systematic_review"],
@@ -289,9 +289,9 @@ async def test_parallel_task_force_runs_both_packs():
 @pytest.mark.asyncio
 async def test_single_pack_parallel_mode_falls_to_sequential():
     """A single-specialist run with task_force_mode='parallel' runs sequentially."""
-    from agent_fabric.application.execute_task import execute_task
-    from agent_fabric.domain import Task, RunId
-    from agent_fabric.domain.models import LLMResponse, ToolCallRequest
+    from agentic_concierge.application.execute_task import execute_task
+    from agentic_concierge.domain import Task, RunId
+    from agentic_concierge.domain.models import LLMResponse, ToolCallRequest
 
     task = Task(
         prompt="Single pack task",
@@ -300,7 +300,7 @@ async def test_single_pack_parallel_mode_falls_to_sequential():
         network_allowed=False,
     )
 
-    config = FabricConfig(
+    config = ConciergeConfig(
         models={"fast": ModelConfig(base_url="http://x/v1", model="m")},
         specialists={
             "engineering": SpecialistConfig(description="eng", workflow="engineering"),

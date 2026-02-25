@@ -1,6 +1,6 @@
-# agent-fabric: Long-term Vision
+# agentic-concierge: Long-term Vision
 
-A single, coherent vision document for the agent-fabric project. Use this to steer design and to check that the repo stays aligned with the vision.
+A single, coherent vision document for the agentic-concierge project. Use this to steer design and to check that the repo stays aligned with the vision.
 
 ---
 
@@ -82,7 +82,7 @@ We can start with a small set of very specialised pillars (e.g. engineering + re
 - **Specialist pool:** Many agents, each with distinct capabilities (A, B, C, D, …)—e.g. data engineering, mobile, financial modelling, research, enterprise search. None of them need to be “always on”.
 - **Task → breakdown → recruit → task force:** For each task we (1) look at what’s required, (2) break it down into explicit capabilities, (3) recruit only the agents that have those capabilities, and (4) spin them up to form a **task force** for that problem. Example: pure data-engineering work → recruit data-engineering (and any supporting) agents only; no mobile-app or financial-modelling agents.
 - **Orchestrator, not full roster:** What is always available (or quickly started) is something that can **decide what to spin up** and orchestrate the task—not the entire set of agents. So we don’t “toggle” which pre-defined team is active; we **form a team on demand** and spin up only what that task needs.
-- **Single fabric, multiple packs:** One agent-fabric with many “packs” (capability areas). The orchestrator/router analyses the task, maps it to required capabilities, and recruits the right pack(s) or sub-agents. The system is designed to **adapt to any new formation** the task demands—new capability areas and new combinations can be added without being limited to a fixed set of use cases. The current repo uses “one pack per run” chosen by a router; the long-term model extends this to task decomposition and **multi-pack recruitment** so that the right task force is assembled and started for each request.
+- **Single fabric, multiple packs:** One agentic-concierge with many “packs” (capability areas). The orchestrator/router analyses the task, maps it to required capabilities, and recruits the right pack(s) or sub-agents. The system is designed to **adapt to any new formation** the task demands—new capability areas and new combinations can be added without being limited to a fixed set of use cases. The current repo uses “one pack per run” chosen by a router; the long-term model extends this to task decomposition and **multi-pack recruitment** so that the right task force is assembled and started for each request.
 
 ---
 
@@ -103,9 +103,9 @@ We can start with a small set of very specialised pillars (e.g. engineering + re
   - Phase 1: Engineering + research packs, keyword router, CLI, HTTP API, local Ollama, sandbox, runlog.
   - Phase 2: Capability model; two-stage routing (prompt → required capabilities → pack by coverage); capability logged in runlog and HTTP `_meta`.
   - Phase 3: Multi-pack task forces; sequential execution with context handoff; shared workspace + runlog; `pack_start` events.
-  - Phase 4: Generic/cloud LLM client (`ModelConfig.backend`); `fabric logs` CLI subcommand; OpenTelemetry tracing (optional dep; no-op shim when absent); LLM-driven orchestrator routing with `routing_model_key`.
+  - Phase 4: Generic/cloud LLM client (`ModelConfig.backend`); `concierge logs` CLI subcommand; OpenTelemetry tracing (optional dep; no-op shim when absent); LLM-driven orchestrator routing with `routing_model_key`.
   - Phase 5: MCP tool server support — `MCPServerConfig` in config; `MCPAugmentedPack` wraps any specialist pack transparently; `aopen`/`aclose` lifecycle; tool names prefixed `mcp__<server>__<tool>`; optional `mcp` dep group.
-  - Phase 6: Persistent run index + `fabric logs search`; real MCP server smoke test (filesystem); containerised workspace isolation via Podman (`ContainerisedSpecialistPack`; `:Z` SELinux label); cloud LLM fallback (`FallbackPolicy` + `FallbackChatClient`; `CloudFallbackConfig`).
+  - Phase 6: Persistent run index + `concierge logs search`; real MCP server smoke test (filesystem); containerised workspace isolation via Podman (`ContainerisedSpecialistPack`; `:Z` SELinux label); cloud LLM fallback (`FallbackPolicy` + `FallbackChatClient`; `CloudFallbackConfig`).
   - Phase 7: Semantic run index search (`embed_text` + `cosine_similarity` + `semantic_search_index` via Ollama; `RunIndexConfig` with `embedding_model`); GitHub MCP real integration tests + `docs/MCP_INTEGRATIONS.md`; `enterprise_research` specialist (`cross_run_search` tool, staleness/confidence notation, `enterprise_search` + `github_search` capabilities).
   - Phase 8: Parallel task force execution (`task_force_mode: parallel`; `asyncio.gather`; `_merge_parallel_payloads`); SSE streaming (`POST /run/stream`; `event_queue` on `execute_task`; `_emit` helper; `run_complete` event); run status endpoint (`GET /runs/{id}/status`).
 
@@ -127,7 +127,7 @@ Use this checklist to keep the repo aligned with the vision.
 |----------------|------------------------|----------------|
 | Quality over speed | README, REQUIREMENTS (quality gates), workflow system prompts | Enforced in engineering/research rules and FR5. |
 | Local-first | Config `base_url`, `local_llm_ensure_available` (default True), README quickstart | Local LLM is default and primary; fabric ensures available (start if needed) by default. Cloud when local capability/quality insufficient (future). |
-| Cloud fallback | `infrastructure/chat/fallback.py`; `CloudFallbackConfig` in `config/schema.py`; `FallbackPolicy` (no_tool_calls / malformed_args / always); auto-wrap in `execute_task`; `cloud_fallback` runlog events | **Done (Phase 6, P6-4):** Triggers when local model fails a quality bar (no tool calls, malformed args), not on connection failure. `cloud_fallback: {model_key, policy}` in `FabricConfig`. |
+| Cloud fallback | `infrastructure/chat/fallback.py`; `CloudFallbackConfig` in `config/schema.py`; `FallbackPolicy` (no_tool_calls / malformed_args / always); auto-wrap in `execute_task`; `cloud_fallback` runlog events | **Done (Phase 6, P6-4):** Triggers when local model fails a quality bar (no tool calls, malformed args), not on connection failure. `cloud_fallback: {model_key, policy}` in `ConciergeConfig`. |
 | Engineering pack: plan→implement→test→review | `infrastructure/specialists/engineering.py` | Implemented; deploy/push proposed only (FR5.1). |
 | Research pack: systematic review, citations, screening | `infrastructure/specialists/research.py` | Implemented; citations only from fetch_url (FR5.2). |
 | Deploy/push require human approval | Engineering system rules, FR5.1, `require_human_approval_for` in config | In rules and config; not auto-executed. |

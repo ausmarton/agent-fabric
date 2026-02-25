@@ -1,4 +1,4 @@
-# docker-compose.yml — agent-fabric + Ollama, batteries included.
+# docker-compose.yml — agentic-concierge + Ollama, batteries included.
 #
 # Quick start:
 #   docker compose up -d
@@ -7,10 +7,10 @@
 #        -H "Content-Type: application/json" \
 #        -d '{"prompt": "Write a Python hello-world script"}'
 #
-# The agent-fabric service uses examples/ollama.json as its config by default.
-# To use a different config, set FABRIC_CONFIG_PATH and mount your file.
+# The agentic-concierge service uses examples/ollama.json as its config by default.
+# To use a different config, set CONCIERGE_CONFIG_PATH and mount your file.
 #
-# To enable API key authentication, uncomment FABRIC_API_KEY below and set a
+# To enable API key authentication, uncomment CONCIERGE_API_KEY below and set a
 # strong secret.  Then include Authorization: Bearer <key> in every request.
 
 services:
@@ -29,8 +29,8 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  agent-fabric:
-    image: ghcr.io/ausmarton/agent-fabric:latest
+  agentic-concierge:
+    image: ghcr.io/ausmarton/agentic-concierge:latest
     # To build locally instead:
     # build:
     #   context: .
@@ -42,10 +42,10 @@ services:
       # Point at the ollama service defined above.
       # The examples/ollama.json config uses localhost:11434 — override the
       # base_url to reach the ollama container via its service name.
-      FABRIC_CONFIG_PATH: /config/fabric.json
-      FABRIC_WORKSPACE: /data/workspace
+      CONCIERGE_CONFIG_PATH: /config/fabric.json
+      CONCIERGE_WORKSPACE: /data/workspace
       # Uncomment and set a strong secret to enable bearer-token auth:
-      # FABRIC_API_KEY: "change-me-to-a-strong-secret"
+      # CONCIERGE_API_KEY: "change-me-to-a-strong-secret"
     volumes:
       - ./examples/ollama.json:/config/fabric.json:ro
       - workspace:/data/workspace

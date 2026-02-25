@@ -1,4 +1,4 @@
-# agent-fabric: Architecture
+# agentic-concierge: Architecture
 
 **Purpose:** Layer boundaries, key classes, data flow, and extension points.
 Read this before making structural changes or adding a new specialist pack.
@@ -10,7 +10,7 @@ See [BACKLOG.md](BACKLOG.md) for what is next.
 
 ## 1. Layer overview
 
-agent-fabric uses a strict hexagonal (ports-and-adapters) architecture.
+agentic-concierge uses a strict hexagonal (ports-and-adapters) architecture.
 Arrows show allowed import directions — the application core never imports
 from infrastructure or interfaces.
 
@@ -19,7 +19,7 @@ from infrastructure or interfaces.
 │  Interfaces  (entry points — wire everything together)              │
 │                                                                     │
 │   cli.py (Typer)                 http_api.py (FastAPI)              │
-│   fabric run / serve / logs      GET /health                        │
+│   concierge run / serve / logs      GET /health                        │
 │                                  POST /run  (blocking)              │
 │                                  POST /run/stream  (SSE)            │
 │                                  GET /runs/{id}/status              │
@@ -62,7 +62,7 @@ from infrastructure or interfaces.
 
   Config  (cross-cutting — any layer may import)
   ┌────────────────────────────────────────────────────────────────────┐
-  │  FabricConfig · ModelConfig · SpecialistConfig · MCPServerConfig   │
+  │  ConciergeConfig · ModelConfig · SpecialistConfig · MCPServerConfig   │
   │  CloudFallbackConfig · RunIndexConfig · TelemetryConfig            │
   │  load_config() [lru_cache] · capabilities.py · constants.py       │
   └────────────────────────────────────────────────────────────────────┘
@@ -73,7 +73,7 @@ from infrastructure or interfaces.
 ## 2. Component map
 
 ```
-src/agent_fabric/
+src/agentic_concierge/
 │
 ├── domain/
 │   ├── models.py        Task · RunId · RunResult
@@ -120,7 +120,7 @@ src/agent_fabric/
 │   ├── workspace/
 │   │   ├── run_repository.py  FileSystemRunRepository
 │   │   ├── run_directory.py   create_run_directory()
-│   │   │                        → .fabric/runs/<uuid>/{workspace/, runlog.jsonl}
+│   │   │                        → .concierge/runs/<uuid>/{workspace/, runlog.jsonl}
 │   │   ├── run_log.py         append_event() — one JSON line per event
 │   │   ├── run_index.py       RunIndexEntry · append_to_index() · search_index()
 │   │   │                        semantic_search_index() (cosine similarity via Ollama)
@@ -164,11 +164,11 @@ src/agent_fabric/
 │
 ├── interfaces/
 │   ├── cli.py            Typer app:
-│   │                       fabric run [--pack] [--model-key] [--network-allowed] [--verbose]
-│   │                       fabric serve [--host] [--port]
-│   │                       fabric logs list [--workspace] [--limit]
-│   │                       fabric logs show RUN_ID [--workspace] [--kinds]
-│   │                       fabric logs search QUERY [--workspace] [--limit]
+│   │                       concierge run [--pack] [--model-key] [--network-allowed] [--verbose]
+│   │                       concierge serve [--host] [--port]
+│   │                       concierge logs list [--workspace] [--limit]
+│   │                       concierge logs show RUN_ID [--workspace] [--kinds]
+│   │                       concierge logs search QUERY [--workspace] [--limit]
 │   └── http_api.py       FastAPI:
 │                           GET  /health
 │                           POST /run               (blocking; returns finish_task payload + _meta)
@@ -176,11 +176,11 @@ src/agent_fabric/
 │                           GET  /runs/{id}/status  (completed | running | 404)
 │
 └── config/
-    ├── schema.py         FabricConfig · ModelConfig · SpecialistConfig
+    ├── schema.py         ConciergeConfig · ModelConfig · SpecialistConfig
     │                       MCPServerConfig · CloudFallbackConfig · RunIndexConfig
     │                       TelemetryConfig · DEFAULT_CONFIG (Ollama @ localhost:11434)
     ├── loader.py         load_config() — lru_cache(maxsize=1)
-    │                       reads FABRIC_CONFIG_PATH env var (JSON or YAML)
+    │                       reads CONCIERGE_CONFIG_PATH env var (JSON or YAML)
     ├── capabilities.py   CAPABILITY_KEYWORDS · infer_capabilities()
     └── constants.py      MAX_TOOL_OUTPUT_CHARS · MAX_LLM_CONTENT_IN_RUNLOG_CHARS
                           LLM_DISCOVERY_TIMEOUT_S · SHELL_DEFAULT_TIMEOUT_S
@@ -208,7 +208,7 @@ src/agent_fabric/
        │    wrap chat_client with FallbackChatClient(local, cloud, policy)
        │
        ├─ RunRepository.create_run()
-       │    creates .fabric/runs/<uuid>/workspace/
+       │    creates .concierge/runs/<uuid>/workspace/
        │    → (RunId, run_dir, workspace_path)
        │
        ├─ [task_force_mode == "parallel" and len(specialist_ids) > 1]?
@@ -319,7 +319,7 @@ After the pack loop(s):
 
 ## 4. Runlog events
 
-Every run produces `.fabric/runs/<id>/runlog.jsonl`.
+Every run produces `.concierge/runs/<id>/runlog.jsonl`.
 Each line is a JSON record:
 
 ```json
@@ -367,7 +367,7 @@ Inject at the interface layer. No changes to `execute_task` or any other layer.
 **Option A — config-driven (no core code change):**
 
 1. Write a factory: `build_my_pack(workspace_path: str, network_allowed: bool) -> SpecialistPack`
-2. In your `FABRIC_CONFIG_PATH` config, set `builder: "mymodule:build_my_pack"` on the specialist entry.
+2. In your `CONCIERGE_CONFIG_PATH` config, set `builder: "mymodule:build_my_pack"` on the specialist entry.
 
 **Option B — built-in:**
 
@@ -392,13 +392,13 @@ Add an `mcp_servers` entry to any specialist in config — see [MCP_INTEGRATIONS
 ## 6. Config and startup
 
 ```
-FABRIC_CONFIG_PATH (env var, optional JSON or YAML)
+CONCIERGE_CONFIG_PATH (env var, optional JSON or YAML)
         │
         ▼
  load_config()  ← lru_cache(maxsize=1): read once per process
         │              call load_config.cache_clear() to force reload
         ▼
- FabricConfig
+ ConciergeConfig
    ├── models: {key → ModelConfig(base_url, model, backend, temperature, …)}
    ├── specialists: {id → SpecialistConfig(description, keywords, builder?, mcp_servers, container_image)}
    ├── routing_model_key: str  (default "fast")
