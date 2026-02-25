@@ -145,21 +145,27 @@ def test_api_health_returns_ok():
 
 def test_api_run_accepts_prompt():
     """API POST /run accepts prompt and returns 200 when execute_task is mocked."""
+    from unittest.mock import MagicMock
     from agent_fabric.interfaces.http_api import app
     cfg = FabricConfig(
         models=DEFAULT_CONFIG.models,
         specialists=DEFAULT_CONFIG.specialists,
         local_llm_ensure_available=False,
     )
-    with patch("agent_fabric.interfaces.http_api.load_config", return_value=cfg):
-        with patch("agent_fabric.interfaces.http_api.execute_task", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = RunResult(
-                run_id=RunId("test"), run_dir="/tmp/x", workspace_path="/tmp/x/w",
-                specialist_id="engineering", model_name="qwen2.5:7b",
-                payload={"action": "final", "summary": "Done", "artifacts": [], "next_steps": [], "notes": ""},
-            )
-            client = TestClient(app)
-            r = client.post("/run", json={"prompt": "hello", "pack": "engineering"})
+    # resolve_llm makes a real HTTP probe → must be mocked so the test works
+    # without a live Ollama server.
+    mock_model_cfg = next(iter(cfg.models.values()))
+    mock_resolved = MagicMock(model_config=mock_model_cfg, base_url=mock_model_cfg.base_url)
+    with patch("agent_fabric.interfaces.http_api.load_config", return_value=cfg), \
+         patch("agent_fabric.interfaces.http_api.resolve_llm", return_value=mock_resolved), \
+         patch("agent_fabric.interfaces.http_api.execute_task", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = RunResult(
+            run_id=RunId("test"), run_dir="/tmp/x", workspace_path="/tmp/x/w",
+            specialist_id="engineering", model_name="qwen2.5:7b",
+            payload={"action": "final", "summary": "Done", "artifacts": [], "next_steps": [], "notes": ""},
+        )
+        client = TestClient(app)
+        r = client.post("/run", json={"prompt": "hello", "pack": "engineering"})
     assert r.status_code == 200
     data = r.json()
     assert "_meta" in data
