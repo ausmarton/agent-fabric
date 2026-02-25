@@ -163,13 +163,35 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 
 ---
 
-## Phase 6+: Containerisation and enterprise scale (backlog)
+## Phase 6: Containerisation, memory, and cloud fallback — **complete**
 
-- **Containerised workers (e.g. Podman)** per specialist role, spun up on demand.
-- **Persistent vector store** for enterprise RAG (metadata, staleness).
-- **Cloud fallback** when local model cannot meet the bar.
+**Goal:** OS-level workspace isolation (Podman), cross-run memory (run index), end-to-end MCP verification, and cloud LLM fallback quality gate. All are additive; existing behaviour unchanged when features are not configured.
 
-Update PLAN with concrete deliverables when Phase 6 begins.
+### Deliverables (Phase 6)
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 6.1 | Persistent run index + `fabric logs search` | Done | `infrastructure/workspace/run_index.py`; append-only JSONL; keyword/substring `search_index()`; `fabric logs search <query>` CLI; `execute_task` appends on success; 9 tests |
+| 6.2 | Real MCP server smoke test | Done | `tests/test_mcp_real_server.py` — 5 tests using `@modelcontextprotocol/server-filesystem` via `npx`; `real_mcp` marker; `podman`/`real_llm`/`real_mcp` all declared in `pyproject.toml` |
+| 6.3 | Containerised workspace isolation (Podman) | Done | `infrastructure/specialists/containerised.py` — `ContainerisedSpecialistPack`; `podman run -d --rm -v workspace:/workspace:Z`; shell intercepted via `podman exec`; `SpecialistConfig.container_image`; registry wraps after MCP; 26 tests (22 unit + 4 real Podman) |
+| 6.4 | Cloud LLM fallback | Done | `infrastructure/chat/fallback.py` — `FallbackPolicy` (no_tool_calls / malformed_args / always) + `FallbackChatClient` + `pop_events()`; `CloudFallbackConfig` + `cloud_fallback` on `FabricConfig`; `execute_task` auto-wraps + drains events + logs `cloud_fallback` runlog events; 21 tests |
+
+**Phase 6 acceptance:** All 4 deliverables implemented; fast CI: **304 pass** (+47 vs Phase 5). `SpecialistConfig(container_image="python:3.12-slim")` wraps pack with `ContainerisedSpecialistPack`; `FabricConfig(cloud_fallback=CloudFallbackConfig(...))` auto-wraps chat client; `fabric logs search` returns matching prior runs.
+
+---
+
+## Phase 7: Enterprise RAG and integrations
+
+**Goal:** Upgrade the run index from keyword to semantic search (vector embeddings via Ollama); integrate first real enterprise MCP server (GitHub); add an enterprise research pack that can search GitHub, Confluence, and Jira via MCP; strengthen cross-run memory for the orchestrator.
+
+### Deliverables (Phase 7)
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 7.1 | Semantic run index search (vector embeddings) | Done | `run_index.py`: `RunIndexEntry.embedding`; `embed_text()` via Ollama `/api/embeddings` (strips `/v1`); `cosine_similarity()`; `semantic_search_index()` with keyword fallback; `RunIndexConfig` + `run_index` on `FabricConfig`; `execute_task` embeds entry when configured; `fabric logs search` uses semantic when available; 22 tests |
+| 7.2 | GitHub MCP integration + tests | Done | `tests/test_mcp_real_github.py` — 4 tests (list_tools, search_repositories, get_file_contents, unknown_tool); `github_search` + `enterprise_search` capabilities in `capabilities.py`; `docs/MCP_INTEGRATIONS.md` with GitHub/Confluence/Jira/filesystem config examples |
+| 7.3 | Enterprise research specialist | Done | `infrastructure/specialists/enterprise_research.py` — `cross_run_search` tool (queries run index); staleness/confidence system prompt; `enterprise_search` + `github_search` capabilities; entry in `DEFAULT_CONFIG`; registry `_DEFAULT_BUILDERS` updated; 16 tests |
+| 7.4 | Docs update | Done | STATE.md (phase 7 complete, CI 342); PLAN.md (this table); VISION.md §7 (Phase 7 in history, Phase 8+ planned) + §8 (enterprise integrations row updated) |
 
 ---
 
@@ -177,4 +199,4 @@ Update PLAN with concrete deliverables when Phase 6 begins.
 
 - **Resume by:** Reading STATE.md → PLAN.md (current phase) → run verification → do next deliverable.
 - **Always:** Keep STATE.md updated when completing or starting work; run `pytest tests/ -v` before considering a phase done.
-- **Value:** Phase 1 delivers a working, testable, documented fabric; Phase 2 aligns routing with the vision (task → capabilities → recruit); Phase 3 enables multi-pack task forces; Phase 4 adds observability and multi-backend LLM; Phase 5 adds MCP tool server support.
+- **Value:** Phase 1 delivers a working, testable, documented fabric; Phase 2 aligns routing with the vision (task → capabilities → recruit); Phase 3 enables multi-pack task forces; Phase 4 adds observability and multi-backend LLM; Phase 5 adds MCP tool server support; Phase 6 adds workspace isolation (Podman), cross-run memory (run index), real MCP verification, and cloud LLM fallback; Phase 7 upgrades to semantic search, real enterprise integrations (GitHub, Confluence, Jira), and an enterprise research specialist.

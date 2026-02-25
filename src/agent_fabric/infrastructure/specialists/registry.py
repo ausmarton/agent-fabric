@@ -20,6 +20,7 @@ from agent_fabric.config import FabricConfig
 from agent_fabric.application.ports import SpecialistPack, SpecialistRegistry
 
 from .engineering import build_engineering_pack
+from .enterprise_research import build_enterprise_research_pack
 from .research import build_research_pack
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 # External / custom packs: set SpecialistConfig.builder in config instead.
 _DEFAULT_BUILDERS: dict[str, Callable[[str, bool], SpecialistPack]] = {
     "engineering": build_engineering_pack,
+    "enterprise_research": build_enterprise_research_pack,
     "research": build_research_pack,
 }
 

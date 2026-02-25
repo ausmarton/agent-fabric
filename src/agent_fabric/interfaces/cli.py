@@ -209,19 +209,44 @@ def logs_show(
 
 @logs_app.command("search")
 def logs_search(
-    query: str = typer.Argument(..., help="Keyword to search for in past run prompts and summaries."),
+    query: str = typer.Argument(..., help="Search query for past run prompts and summaries."),
     workspace: str = typer.Option(
         ".fabric", "--workspace", "-w", help="Workspace root (default: .fabric)."
     ),
     limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of results."),
 ) -> None:
-    """Search past runs by keyword (matches prompt and summary)."""
-    from agent_fabric.infrastructure.workspace.run_index import search_index
+    """Search past runs by keyword or semantic similarity.
+
+    Uses semantic search (cosine similarity via Ollama embeddings) when
+    ``run_index.embedding_model`` is set in config and at least some index
+    entries have been embedded.  Falls back to keyword/substring search
+    automatically when embeddings are unavailable.
+    """
     import datetime
+    from agent_fabric.infrastructure.workspace.run_index import (
+        search_index,
+        semantic_search_index,
+    )
     from rich.table import Table
     from rich.console import Console
 
-    results = search_index(workspace, query, limit=limit)
+    cfg = load_config()
+    ri_cfg = cfg.run_index
+
+    if ri_cfg.embedding_model:
+        # Use the configured embedding base URL, or derive from the first model.
+        embed_base = ri_cfg.embedding_base_url or next(iter(cfg.models.values())).base_url
+        results = asyncio.run(
+            semantic_search_index(
+                workspace, query,
+                embedding_model=ri_cfg.embedding_model,
+                embedding_base_url=embed_base,
+                top_k=limit,
+            )
+        )
+    else:
+        results = search_index(workspace, query, limit=limit)
+
     if not results:
         rprint(f"[dim]No runs matching '{query}' found in {workspace}/run_index.jsonl[/dim]")
         return

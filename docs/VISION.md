@@ -99,18 +99,20 @@ We can start with a small set of very specialised pillars (e.g. engineering + re
 
 ## 7. Phasing and blueprint
 
-- **Phases 1–5 (complete):**
+- **Phases 1–7 (complete):**
   - Phase 1: Engineering + research packs, keyword router, CLI, HTTP API, local Ollama, sandbox, runlog.
   - Phase 2: Capability model; two-stage routing (prompt → required capabilities → pack by coverage); capability logged in runlog and HTTP `_meta`.
   - Phase 3: Multi-pack task forces; sequential execution with context handoff; shared workspace + runlog; `pack_start` events.
   - Phase 4: Generic/cloud LLM client (`ModelConfig.backend`); `fabric logs` CLI subcommand; OpenTelemetry tracing (optional dep; no-op shim when absent); LLM-driven orchestrator routing with `routing_model_key`.
   - Phase 5: MCP tool server support — `MCPServerConfig` in config; `MCPAugmentedPack` wraps any specialist pack transparently; `aopen`/`aclose` lifecycle; tool names prefixed `mcp__<server>__<tool>`; optional `mcp` dep group.
+  - Phase 6: Persistent run index + `fabric logs search`; real MCP server smoke test (filesystem); containerised workspace isolation via Podman (`ContainerisedSpecialistPack`; `:Z` SELinux label); cloud LLM fallback (`FallbackPolicy` + `FallbackChatClient`; `CloudFallbackConfig`).
+  - Phase 7: Semantic run index search (`embed_text` + `cosine_similarity` + `semantic_search_index` via Ollama; `RunIndexConfig` with `embedding_model`); GitHub MCP real integration tests + `docs/MCP_INTEGRATIONS.md`; `enterprise_research` specialist (`cross_run_search` tool, staleness/confidence notation, `enterprise_search` + `github_search` capabilities).
 
-- **Phase 6+ (next):**
-  - Containerised workers (e.g. Podman) per specialist role, spun up on demand.
-  - Persistent vector store for enterprise RAG (metadata, staleness, cross-run memory).
-  - Cloud fallback when local model cannot meet the quality or capability bar.
-  - Real MCP server integrations (Confluence, Jira, GitHub) using Phase 5 infrastructure.
+- **Phase 8+ (next):**
+  - Parallel task force execution (async concurrent packs, not sequential only).
+  - Richer orchestration: dynamic re-recruitment when a pack's output reveals additional capability needs.
+  - Real-time streaming of run progress via Server-Sent Events (SSE) on the HTTP API.
+  - Persistent agent identity / session continuation (resume an interrupted run).
 
 The full blueprint is reflected in PLAN.md, BACKLOG.md, REQUIREMENTS.md, and this document.
 
@@ -124,13 +126,13 @@ Use this checklist to keep the repo aligned with the vision.
 |----------------|------------------------|----------------|
 | Quality over speed | README, REQUIREMENTS (quality gates), workflow system prompts | Enforced in engineering/research rules and FR5. |
 | Local-first | Config `base_url`, `local_llm_ensure_available` (default True), README quickstart | Local LLM is default and primary; fabric ensures available (start if needed) by default. Cloud when local capability/quality insufficient (future). |
-| Cloud fallback | Not implemented | When local **model** cannot meet quality or capability (e.g. task needs larger model), not when connection fails. Future. |
+| Cloud fallback | `infrastructure/chat/fallback.py`; `CloudFallbackConfig` in `config/schema.py`; `FallbackPolicy` (no_tool_calls / malformed_args / always); auto-wrap in `execute_task`; `cloud_fallback` runlog events | **Done (Phase 6, P6-4):** Triggers when local model fails a quality bar (no tool calls, malformed args), not on connection failure. `cloud_fallback: {model_key, policy}` in `FabricConfig`. |
 | Engineering pack: plan→implement→test→review | `infrastructure/specialists/engineering.py` | Implemented; deploy/push proposed only (FR5.1). |
 | Research pack: systematic review, citations, screening | `infrastructure/specialists/research.py` | Implemented; citations only from fetch_url (FR5.2). |
 | Deploy/push require human approval | Engineering system rules, FR5.1, `require_human_approval_for` in config | In rules and config; not auto-executed. |
 | Task-based recruitment (one pack per run) | `application/recruit.py`, `config/capabilities.py`, `config/schema.py` | **Phase 2 complete:** two-stage capability routing (prompt → required capabilities → pack by coverage); `required_capabilities` logged in runlog and HTTP `_meta`; one pack per run; multi-pack task force is Phase 3. |
 | Orchestrator decides what to spin up | Router today; no task decomposition yet | Vision: orchestrator always available; agents spun up on demand. No “toggle teams”. |
-| Enterprise (Confluence/Jira/GitHub/Rally) | MCP infrastructure now in place (Phase 5) | `MCPServerConfig` + `MCPAugmentedPack` wired; real connector servers (e.g. `@modelcontextprotocol/server-github`) are Phase 6 config entries. |
+| Enterprise (Confluence/Jira/GitHub/Rally) | `infrastructure/specialists/enterprise_research.py`; `docs/MCP_INTEGRATIONS.md`; `tests/test_mcp_real_github.py`; `github_search` + `enterprise_search` capabilities | **Done (Phase 7, P7-2+P7-3):** `enterprise_research` specialist with `cross_run_search` tool; GitHub MCP real integration test; `docs/MCP_INTEGRATIONS.md` config examples for GitHub, Confluence, Jira. Confluence/Jira real tests deferred pending official MCP packages. |
 | Observability | `infrastructure/telemetry.py`; `TelemetryConfig` in schema | **Done (Phase 4):** OpenTelemetry no-op shim + optional real OTEL (console/otlp); `fabric.execute_task` / `fabric.llm_call` / `fabric.tool_call` spans; `[otel]` optional dep. |
 | AMD / Fedora / Vulkan-friendly | README Quickstart (Fedora, Option A llama.cpp) | Documented; no NVIDIA assumption. |
 | Portable, clean, extensible | Structure: packs, workflows, tools, config | Packs and workflows are pluggable; config-driven. |

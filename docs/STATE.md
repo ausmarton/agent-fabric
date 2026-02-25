@@ -2,18 +2,22 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-25. Fast CI: **304 pass** (T1 + T2 + T3 tiers complete; Phases 2–6 complete; all P6-1 through P6-4 done).
+**Last updated:** 2026-02-25. Fast CI: **342 pass** (T1 + T2 + T3 tiers complete; Phases 2–7 complete; all P6-1 through P7-4 done).
 
 ---
 
-## Current phase: **Phase 6 complete**
+## Current phase: **Phase 7 complete**
 
-Phase 6 is **complete**. All four deliverables (P6-1 through P6-4) are done:
+Phases 6 and 7 are both **complete**. Phase 7 items (P7-1 through P7-4) are all done. All four Phase 6 deliverables (P6-1 through P6-4) are also done:
 
 - **P6-1:** Persistent cross-run run index (`run_index.jsonl`) + `fabric logs search`.
 - **P6-2:** Real MCP server smoke test (`tests/test_mcp_real_server.py`, `@pytest.mark.real_mcp`).
 - **P6-3:** Containerised workspace isolation — `ContainerisedSpecialistPack` runs `shell` inside Podman; `SpecialistConfig.container_image` triggers transparent wrapping.
 - **P6-4:** Cloud LLM fallback — `FallbackChatClient` + `FallbackPolicy`; `CloudFallbackConfig` on `FabricConfig`; `cloud_fallback` runlog events; auto-wrapping in `execute_task`.
+- **P7-1:** Semantic run index search — `embed_text()` via Ollama `/api/embeddings`; `cosine_similarity()`; `semantic_search_index()` with keyword fallback; `RunIndexConfig` on `FabricConfig`; `execute_task` embeds on success; `fabric logs search` uses semantic when available. 22 tests.
+- **P7-2:** GitHub MCP real integration test + `docs/MCP_INTEGRATIONS.md`; `github_search` + `enterprise_search` capabilities added.
+- **P7-3:** `enterprise_research` specialist — `cross_run_search` tool (queries run index), staleness/confidence system prompt, `enterprise_search` + `github_search` capabilities; in `DEFAULT_CONFIG`. 16 tests.
+- **P7-4:** Docs update — STATE.md, PLAN.md, VISION.md §7+§8, BACKLOG.md all updated.
 
 ---
 
@@ -139,8 +143,8 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify”` — confirm 257 pass before touching code.
-3. All Phase 6 items done — check BACKLOG.md for any new items or plan Phase 7.
+2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **304 pass** before touching code.
+3. Phase 7 is complete — see BACKLOG.md for Phase 8 planning or add new items.
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---

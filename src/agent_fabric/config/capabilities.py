@@ -45,4 +45,15 @@ CAPABILITY_KEYWORDS: Dict[str, List[str]] = {
     "web_search": [
         "search the web", "web search", "fetch url", "browse the internet",
     ],
+
+    # Enterprise search capabilities (P7-2 / P7-3)
+    "github_search": [
+        "github issue", "github pr", "github pull request", "github repository",
+        "search github", "github code", "github commit",
+    ],
+    "enterprise_search": [
+        "confluence", "jira", "rally", "internal docs", "knowledge base",
+        "enterprise search", "internal knowledge", "company wiki",
+        "supply management", "internal policies",
+    ],
 }

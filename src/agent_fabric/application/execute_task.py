@@ -222,24 +222,55 @@ async def execute_task(
     # Append to the cross-run index so past runs are searchable.
     # Failure is non-fatal — log a warning and return the result regardless.
     try:
-        from agent_fabric.infrastructure.workspace.run_index import RunIndexEntry, append_to_index
+        from agent_fabric.infrastructure.workspace.run_index import (
+            RunIndexEntry,
+            append_to_index,
+            embed_text,
+        )
         import time
         workspace_root = str(_run_dir_to_workspace_root(run_dir))
+        summary_text = (
+            final_payload.get("summary")
+            or final_payload.get("executive_summary")
+            or ""
+        )
         entry = RunIndexEntry(
             run_id=run_id.value,
             timestamp=time.time(),
             specialist_ids=specialist_ids,
             prompt_prefix=task.prompt[:200],
-            summary=(
-                final_payload.get("summary")
-                or final_payload.get("executive_summary")
-                or ""
-            ),
+            summary=summary_text,
             workspace_path=workspace_path,
             run_dir=run_dir,
             routing_method=routing_method,
             model_name=model_cfg.model,
         )
+
+        # P7-1: Optionally embed the entry for semantic search.
+        # When embedding_model is configured the prompt+summary are embedded
+        # and stored alongside the index entry.  Embedding failure is non-fatal.
+        run_index_cfg = config.run_index
+        if run_index_cfg.embedding_model:
+            embed_base = (
+                run_index_cfg.embedding_base_url or model_cfg.base_url
+            )
+            try:
+                embed_input = f"{task.prompt[:200]} {summary_text}".strip()
+                entry.embedding = await embed_text(
+                    embed_input,
+                    run_index_cfg.embedding_model,
+                    embed_base,
+                )
+                logger.debug(
+                    "RunIndex: embedded entry for run %s (model=%s dims=%d)",
+                    run_id.value, run_index_cfg.embedding_model, len(entry.embedding),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "RunIndex: embedding failed for run %s (%s); index entry written without embedding",
+                    run_id.value, exc,
+                )
+
         append_to_index(workspace_root, entry)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to append to run index: %s", exc)

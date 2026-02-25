@@ -142,6 +142,34 @@ class CloudFallbackConfig(BaseModel):
     )
 
 
+class RunIndexConfig(BaseModel):
+    """Configuration for the cross-run index (P6-1 keyword search; P7-1 semantic search).
+
+    When ``embedding_model`` is set, each run is embedded at write time and
+    ``semantic_search_index()`` ranks by cosine similarity instead of substring
+    matching.  When ``None`` (default), the index uses keyword/substring search
+    with no extra dependencies.
+    """
+
+    embedding_model: Optional[str] = Field(
+        None,
+        description=(
+            "Ollama embedding model name, e.g. 'nomic-embed-text'. "
+            "When set, each run entry is embedded at write time and semantic "
+            "search (cosine similarity) is used instead of keyword matching. "
+            "When None (default), keyword/substring search is used."
+        ),
+    )
+    embedding_base_url: Optional[str] = Field(
+        None,
+        description=(
+            "Base URL for the Ollama embeddings endpoint, e.g. 'http://localhost:11434'. "
+            "When None, derived from the primary (fast/quality) model's base_url by "
+            "stripping any /v1 suffix. Usually does not need to be set explicitly."
+        ),
+    )
+
+
 class TelemetryConfig(BaseModel):
     """Optional OpenTelemetry tracing configuration."""
     enabled: bool = False
@@ -161,6 +189,14 @@ class FabricConfig(BaseModel):
     models: Dict[str, ModelConfig]
     specialists: Dict[str, SpecialistConfig]
     telemetry: Optional[TelemetryConfig] = None
+    run_index: RunIndexConfig = Field(
+        default_factory=RunIndexConfig,
+        description=(
+            "Run index configuration. Controls how the cross-run memory index is "
+            "written and searched. Defaults to keyword-only search (no embedding). "
+            "Set embedding_model to enable semantic search."
+        ),
+    )
     cloud_fallback: Optional[CloudFallbackConfig] = Field(
         None,
         description=(
@@ -250,6 +286,23 @@ DEFAULT_CONFIG = FabricConfig(
             keywords=["literature", "systematic review", "paper", "arxiv", "survey", "bibliography", "citations"],
             workflow="research",
             capabilities=["systematic_review", "web_search", "citation_extraction", "file_io"],
+        ),
+        "enterprise_research": SpecialistConfig(
+            description=(
+                "Enterprise search: GitHub, Confluence, Jira, and internal sources "
+                "via MCP. Produces structured reports with staleness/confidence notes."
+            ),
+            keywords=["confluence", "jira", "github", "internal docs", "knowledge base", "enterprise"],
+            workflow="enterprise_research",
+            capabilities=["enterprise_search", "github_search", "systematic_review", "web_search", "file_io"],
+            # MCP servers are wired here in production configs.
+            # Example (add to your FABRIC_CONFIG_PATH file):
+            #   mcp_servers:
+            #     - name: github
+            #       transport: stdio
+            #       command: npx
+            #       args: ["--yes", "--", "@modelcontextprotocol/server-github"]
+            #       env: {GITHUB_TOKEN: "${GITHUB_TOKEN}"}
         ),
     },
 )

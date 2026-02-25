@@ -14,7 +14,7 @@ referenced source files, and [DECISIONS.md](DECISIONS.md).
 **How to resume after an interruption**
 1. Read [STATE.md](STATE.md) — confirms current phase and last verified state.
 2. Read this file — find the first non-done item; that is what to work on.
-3. Run `pytest tests/ -k "not real_llm and not verify and not real_mcp"` — confirm 304 pass before touching code.
+3. Run `pytest tests/ -k "not real_llm and not verify and not real_mcp"` — confirm **342 pass** before touching code.
 4. Start the item; mark it IN PROGRESS here and in STATE.md.
 
 ---
@@ -515,9 +515,92 @@ PLAN.md Phase 3 deliverables ticked off.
 
 ---
 
-## Phase 6 items (next)
+## Phase 7 items (next)
 
-Phase 6 starts now. These are the first non-done items. Work on P6-1 first.
+Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 focuses on upgrading the run index to semantic search, first real enterprise MCP integration (GitHub), and a dedicated enterprise research specialist. Work on P7-1 first.
+
+---
+
+### ~~P7-1: Semantic run index search (vector embeddings via Ollama)~~ **DONE 2026-02-25**
+
+**Why:** P6-1 added keyword/substring matching for the run index. This is limited: "authentication" won't find runs about "login flow" or "OAuth". The vision requires "cross-run memory" that understands semantics. Vector embeddings give us semantic similarity search without any external cloud service — just the local Ollama embedding endpoint.
+
+**What to build:**
+- Extend `infrastructure/workspace/run_index.py`:
+  - `RunIndexEntry` gets an optional `embedding: Optional[list[float]]` field.
+  - New `embed_text(text: str, model: str, base_url: str) -> list[float]` async function — calls `POST /api/embeddings` on the Ollama endpoint.
+  - New `semantic_search_index(query: str, workspace_root: str, config: FabricConfig, top_k: int = 10) -> list[RunIndexEntry]` — embeds the query, loads all entries, computes cosine similarity, returns top-k. Falls back to `search_index()` keyword search when no entries have embeddings.
+  - `append_to_index()` updated to optionally embed the entry at write time (new `embed: bool` param; default False for backward compatibility — can opt in via config).
+- `config/schema.py`: Add `RunIndexConfig(BaseModel)` with `embedding_model: Optional[str] = None` (e.g. `"nomic-embed-text"`). Add `run_index: RunIndexConfig = Field(default_factory=RunIndexConfig)` to `FabricConfig`.
+- `execute_task.py`: Pass `config.run_index` to `append_to_index()` — embed when `embedding_model` is set.
+- `interfaces/cli.py`: `fabric logs search` uses `semantic_search_index()` when embeddings are available; falls back to keyword search otherwise.
+
+**Acceptance criteria:**
+- [ ] `RunIndexEntry` can serialise/deserialise with `embedding` field (None = not embedded).
+- [ ] `embed_text()` calls `POST /api/embeddings` and returns a float list; gracefully raises on HTTP error.
+- [ ] `semantic_search_index()` ranks entries by cosine similarity to query embedding; falls back to keyword when no embeddings exist.
+- [ ] Existing `search_index()` still works unchanged (backward compat).
+- [ ] `RunIndexConfig(embedding_model="nomic-embed-text")` in config → `execute_task` embeds each run; absent/None → no embedding (unchanged behaviour).
+- [ ] Tests: `tests/test_run_index_semantic.py` — 10–12 tests; all mocked (no real Ollama needed for fast CI). Fast CI stays green.
+
+**Files:** `infrastructure/workspace/run_index.py`, `config/schema.py`, `application/execute_task.py`, `interfaces/cli.py`, `tests/test_run_index_semantic.py` (new)
+
+---
+
+### ~~P7-2: GitHub MCP integration + real tests~~ **DONE 2026-02-25**
+
+**Why:** Phase 5 built the MCP infrastructure; P6-2 verified it with a filesystem server. The most immediately useful enterprise integration is GitHub — searching issues, PRs, code, and commit history. The `@modelcontextprotocol/server-github` package is the official MCP server.
+
+**What to build:**
+- `MCPServerConfig.env` already exists for auth tokens. No new config fields needed.
+- Add a `github_search` capability ID to `config/capabilities.py` (`CAPABILITY_KEYWORDS`).
+- `tests/test_mcp_real_github.py` (new, `@pytest.mark.real_mcp`):
+  - Fixture `skip_if_github_token_missing` — skips when `GITHUB_TOKEN` env var is absent.
+  - Fixture `github_mcp_config` — returns `MCPServerConfig(name="github", transport="stdio", command="npx", args=["@modelcontextprotocol/server-github"], env={"GITHUB_TOKEN": os.environ["GITHUB_TOKEN"]})`.
+  - 4 tests: `test_list_tools_returns_non_empty`, `test_search_repositories`, `test_get_file_contents`, `test_unknown_tool_returns_error`.
+- Add a config example in `docs/MCP_INTEGRATIONS.md` (new) showing how to wire the GitHub server into an `enterprise_research` specialist.
+
+**Acceptance criteria:**
+- [ ] `tests/test_mcp_real_github.py` passes when `GITHUB_TOKEN` is set and `npx` is in PATH.
+- [ ] Tests are deselected from fast CI (`-k "not real_mcp"`).
+- [ ] `docs/MCP_INTEGRATIONS.md` includes complete `FabricConfig` YAML examples for GitHub, Confluence, and Jira stubs (even if Confluence/Jira tests are deferred).
+- [ ] Fast CI count unchanged.
+
+**Files:** `tests/test_mcp_real_github.py` (new), `config/capabilities.py`, `docs/MCP_INTEGRATIONS.md` (new)
+
+---
+
+### ~~P7-3: Enterprise research specialist~~ **DONE 2026-02-25**
+
+**Why:** §4.3 of the vision describes an enterprise research assistant that searches Confluence, GitHub, Jira, and Rally and produces reports with staleness and confidence notes. We now have all the infrastructure (MCP, multi-pack, run index). The missing piece is a specialist pack designed for this use case.
+
+**What to build:**
+- `infrastructure/specialists/enterprise_research.py` (new):
+  - `build_enterprise_research_pack(cfg: SpecialistConfig) -> SpecialistPack`
+  - System prompt: enterprise research mode — search across MCP-backed sources (GitHub, Confluence, Jira), produce structured report with links, confidence notes, and explicit staleness caveats.
+  - Tools: all research tools + a `cross_run_search` tool that calls `semantic_search_index()` to retrieve relevant prior run summaries.
+  - `specialist_id = "enterprise_research"`, `capabilities = ["enterprise_search", "systematic_review", "web_search"]`
+- `config/capabilities.py`: Add `"enterprise_search"` to `CAPABILITY_KEYWORDS` with relevant keywords (`confluence`, `jira`, `github issue`, `enterprise`, `knowledge base`, `internal docs`).
+- Default config: add `enterprise_research` specialist entry (with `mcp_servers: []` as placeholder; comment explaining how to add GitHub/Confluence servers).
+- `tests/test_enterprise_research_pack.py` (new): 10 tests — system prompt content, capability declaration, `cross_run_search` tool definition, tool dispatch to inner pack or index search, `finish_task` definition.
+
+**Acceptance criteria:**
+- [ ] `infer_capabilities("search confluence for supply management policies")` returns `["enterprise_search"]`.
+- [ ] `recruit_specialist(task)` selects `enterprise_research` for enterprise-search prompts.
+- [ ] `cross_run_search` tool calls `semantic_search_index()` (or `search_index()` fallback).
+- [ ] Tests: 10+ pass; fast CI stays green.
+
+**Files:** `infrastructure/specialists/enterprise_research.py` (new), `config/capabilities.py`, default config, `tests/test_enterprise_research_pack.py` (new)
+
+---
+
+### ~~P7-4: Docs update for Phase 7~~ **DONE 2026-02-25**
+
+**What:** Update STATE.md (phase → Phase 7 complete, CI count), PLAN.md (Phase 7 deliverables ticked off), VISION.md §7+§8 (Phase 7 in history; enterprise integrations row updated), BACKLOG.md done table.
+
+---
+
+## Phase 6 items (complete)
 
 ---
 
@@ -603,6 +686,10 @@ Phase 6 starts now. These are the first non-done items. Work on P6-1 first.
 
 | Item | Completed | Summary |
 |------|-----------|---------|
+| P7-4: Docs update for Phase 7 | 2026-02-25 | STATE.md (phase 7 in progress → complete, CI 342); PLAN.md (Phase 7 deliverables all ticked); VISION.md §7 (Phase 7 in history) + §8 (enterprise integrations row updated); BACKLOG.md done table. |
+| P7-3: Enterprise research specialist | 2026-02-25 | infrastructure/specialists/enterprise_research.py — cross_run_search tool (queries run index), file tools, web tools (network_allowed); SYSTEM_PROMPT_ENTERPRISE_RESEARCH (staleness/confidence notation, multi-source, structured reports); enterprise_research in DEFAULT_CONFIG with enterprise_search + github_search caps; registry._DEFAULT_BUILDERS updated; 16 tests — system prompt, capabilities, tool defs, cross_run_search execution, routing. Fast CI: 342 pass (+16). |
+| P7-2: GitHub MCP integration | 2026-02-25 | tests/test_mcp_real_github.py — 4 tests (list_tools, search_repositories, get_file_contents, unknown_tool_returns_error); skip_if_github_token_missing + skip_if_npx_unavailable + skip_if_mcp_not_installed fixtures; github_search + enterprise_search capability IDs added to capabilities.py; docs/MCP_INTEGRATIONS.md with GitHub/Confluence/Jira/filesystem config examples. Fast CI: 326 pass (unchanged — real_mcp deselected). |
+| P7-1: Semantic run index search | 2026-02-25 | RunIndexEntry.embedding (Optional[List[float]]); embed_text() via Ollama /api/embeddings (strips /v1 suffix); cosine_similarity(); semantic_search_index() with fallback to keyword; RunIndexConfig(embedding_model, embedding_base_url) on FabricConfig; execute_task embeds entry when configured; fabric logs search uses semantic when available. 22 tests. Fast CI: 326 pass (+22). |
 | P6-4: Cloud LLM fallback | 2026-02-25 | FallbackPolicy (no_tool_calls / malformed_args / always) + FallbackChatClient with pop_events(); CloudFallbackConfig on FabricConfig; execute_task auto-wraps + logs cloud_fallback runlog events. 21 tests, all mocked. Fast CI: 304 pass (+21). |
 | P6-3: Containerised workspace isolation (Podman) | 2026-02-25 | ContainerisedSpecialistPack — podman run/exec/stop lifecycle; :Z SELinux volume label; shell intercepted, other tools delegated; container_image on SpecialistConfig; registry wraps after MCP; 26 tests (22 unit + 4 real Podman). Fast CI: 283 pass (+26). |
 | P6-2: Real MCP server smoke test | 2026-02-25 | tests/test_mcp_real_server.py — 5 tests using @modelcontextprotocol/server-filesystem via npx; fixtures skip gracefully when npx or mcp package absent; all 5 pass end-to-end. pyproject.toml: real_llm + real_mcp markers declared. Fast CI: 257 pass (unchanged). |

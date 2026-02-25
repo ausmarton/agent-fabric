@@ -203,6 +203,9 @@ def test_list_ids_includes_custom_specialist():
 
 
 def test_list_ids_default_config():
-    """Default config has exactly engineering and research."""
+    """Default config includes the built-in specialist packs."""
     registry = ConfigSpecialistRegistry(load_config())
-    assert set(registry.list_ids()) == {"engineering", "research"}
+    ids = set(registry.list_ids())
+    assert "engineering" in ids
+    assert "research" in ids
+    assert "enterprise_research" in ids
