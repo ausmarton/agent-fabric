@@ -97,7 +97,11 @@ jobs:
 
   release:
     name: Create GitHub Release
+    # Run when build succeeds and Docker push succeeds.
+    # PyPI publish is best-effort (needs one-time trusted-publisher setup on pypi.org);
+    # a PyPI failure should not block the GitHub Release from being created.
     needs: [build, publish-pypi, publish-docker]
+    if: always() && needs.build.result == 'success' && needs.publish-docker.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
