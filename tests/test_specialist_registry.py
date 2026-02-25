@@ -129,7 +129,8 @@ def test_workspace_path_and_network_forwarded_to_factory(tmp_path):
         return _StubPack()
 
     # Inject into sys.modules so _load_builder can find it.
-    import sys, types
+    import sys
+    import types
     mod = types.ModuleType("_test_capturing_factory_mod")
     mod.factory = capturing_factory  # type: ignore[attr-defined]
     sys.modules["_test_capturing_factory_mod"] = mod

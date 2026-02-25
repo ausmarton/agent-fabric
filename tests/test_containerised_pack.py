@@ -193,7 +193,7 @@ async def test_aclose_calls_inner_aclose():
 async def test_aclose_stops_container():
     """aclose() calls 'podman stop <container_id>' after inner.aclose()."""
     pack = _make_pack()
-    with patch("subprocess.run", return_value=_successful_podman_run("mycontainer")) as mock_run:
+    with patch("subprocess.run", return_value=_successful_podman_run("mycontainer")):
         await pack.aopen()
 
     with patch("subprocess.run", return_value=_successful_podman_stop()) as mock_stop:

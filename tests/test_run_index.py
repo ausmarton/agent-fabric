@@ -76,7 +76,7 @@ def test_append_multiple_entries_each_on_own_line(tmp_path):
     """Multiple appends produce multiple JSONL lines."""
     for i in range(3):
         append_to_index(str(tmp_path), _entry(run_id=f"run-{i}"))
-    lines = [l for l in (tmp_path / "run_index.jsonl").read_text().splitlines() if l.strip()]
+    lines = [line for line in (tmp_path / "run_index.jsonl").read_text().splitlines() if line.strip()]
     assert len(lines) == 3
 
 
@@ -236,7 +236,7 @@ async def test_execute_task_appends_to_index(tmp_path):
         def get_pack(self, sid, ws, net): return _Pack()
 
     task = Task(prompt="list files in workspace", specialist_id="engineering")
-    result = await execute_task(
+    await execute_task(
         task,
         chat_client=chat_client,
         run_repository=_Repo(),

@@ -378,7 +378,7 @@ async def test_execute_task_logs_cloud_fallback_event_in_runlog(tmp_path):
         def get_pack(self, sid, ws, net): return _Pack()
 
     task = Task(prompt="do something", specialist_id="engineering")
-    result = await execute_task(
+    await execute_task(
         task,
         chat_client=chat_client,
         run_repository=_Repo(),
@@ -460,8 +460,6 @@ async def test_execute_task_auto_wraps_when_cloud_fallback_configured(tmp_path):
     mock_cloud = MagicMock()
     mock_cloud.chat = _cloud_chat
 
-    captured_wrapping: list = []
-
     def _fake_build_chat_client(model_cfg):
         # Returns mock_cloud for the cloud config, mock_local for others
         if model_cfg.model == "gpt-4o":
@@ -489,7 +487,7 @@ async def test_execute_task_auto_wraps_when_cloud_fallback_configured(tmp_path):
         "agent_fabric.infrastructure.chat.build_chat_client",
         side_effect=_fake_build_chat_client,
     ):
-        result = await execute_task(
+        await execute_task(
             task,
             chat_client=mock_local,   # injected local client
             run_repository=_Repo(),

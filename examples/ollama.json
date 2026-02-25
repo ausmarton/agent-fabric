@@ -15,7 +15,7 @@
       "timeout_s": 120.0
     }
   },
-  "packs": {
+  "specialists": {
     "engineering": {
       "description": "Quality-first software/data engineering team: plan \u2192 implement \u2192 test \u2192 review \u2192 iterate.",
       "keywords": [
@@ -30,7 +30,8 @@
         "rust",
         "python"
       ],
-      "workflow": "engineering_v1"
+      "workflow": "engineering",
+      "capabilities": ["code_generation", "code_review", "debugging", "data_engineering"]
     },
     "research": {
       "description": "Systematic literature review workflow: scope \u2192 search \u2192 screen \u2192 extract \u2192 synthesize \u2192 critique.",
@@ -43,7 +44,8 @@
         "bibliography",
         "citations"
       ],
-      "workflow": "research_v1"
+      "workflow": "research",
+      "capabilities": ["web_search", "research_synthesis", "citation_tracking"]
     }
   },
   "local_llm_ensure_available": true,

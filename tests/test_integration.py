@@ -28,7 +28,10 @@ try:
     from tests.conftest import real_llm_reachable, skip_if_no_real_llm, SKIP_REAL_LLM
 except ImportError:
     real_llm_reachable = None
-    skip_if_no_real_llm = lambda: None
+
+    def skip_if_no_real_llm():
+        return None
+
     SKIP_REAL_LLM = True
 
 

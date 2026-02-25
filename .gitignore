@@ -1,5 +1,53 @@
-.venv/
-.fabric/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Testing and coverage
 .pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Type checking
+.mypy_cache/
+.pytype/
+
+# Editors and IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Agent fabric runtime
+.fabric/
+fabric_workspace/
+
+# Distribution
+*.dist-info/
+wheels/
+
+# Secrets (never commit)
+.env
+.env.local
+.env.*.local
+secrets.json

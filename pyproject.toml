@@ -3,7 +3,19 @@ name = "agent-fabric"
 version = "0.1.0"
 description = "A portable, quality-first agent fabric (router + supervisor + specialist packs) that runs on local OpenAI-compatible LLM endpoints."
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
+keywords = ["agents", "llm", "ollama", "mcp", "orchestration", "ai"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
@@ -19,12 +31,24 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-asyncio>=0.23", "mcp>=1.0"]
+dev = [
+  "pytest>=7",
+  "pytest-asyncio>=0.23",
+  "mcp>=1.0",
+  "pip-audit>=2.7",
+  "build>=1.0",
+  "twine>=5.0",
+]
 otel = ["opentelemetry-api>=1.24", "opentelemetry-sdk>=1.24"]
 mcp = ["mcp>=1.0"]
 
 [project.scripts]
 fabric = "agent_fabric.interfaces.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/ausmarton/agent-fabric"
+Repository = "https://github.com/ausmarton/agent-fabric"
+Issues = "https://github.com/ausmarton/agent-fabric/issues"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -36,6 +60,30 @@ markers = [
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # Pyflakes
+]
+ignore = [
+  "E501",  # line too long — not enforced at this time
+  "F401",  # unused imports — some are intentional re-exports
+]
+
+[tool.coverage.run]
+source = ["src/agent_fabric"]
+omit = ["tests/*", "scripts/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]
+show_missing = true
+skip_covered = false
 
 [tool.setuptools.packages.find]
 where = ["src"]

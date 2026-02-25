@@ -9,8 +9,6 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
-logger = logging.getLogger(__name__)
-
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -24,6 +22,8 @@ from agent_fabric.infrastructure.llm_discovery import resolve_llm
 from agent_fabric.infrastructure.telemetry import setup_telemetry
 from agent_fabric.infrastructure.workspace import FileSystemRunRepository
 from agent_fabric.infrastructure.specialists import ConfigSpecialistRegistry
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager

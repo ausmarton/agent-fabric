@@ -470,14 +470,7 @@ async def test_malformed_tool_arguments_produce_tool_error(tmp_path):
     The tool receives unexpected kwargs → TypeError → tool_error event, loop continues.
     """
     # Simulate the _raw fallback that client.py produces on json.JSONDecodeError.
-    malformed_call = LLMResponse(
-        content=None,
-        tool_calls=[ToolCallRequest(
-            call_id="c1",
-            tool_name="list_files",
-            arguments={"_raw": "{not valid json}"},
-        )],
-    )
+    # The LLM response with _raw args triggers a TypeError in the tool → tool_error event.
     result, events = await _run_with_tool_error(TypeError("unexpected keyword argument '_raw'"), tmp_path)
 
     # tool_error must be logged (TypeError → invalid_args)

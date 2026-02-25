@@ -118,7 +118,8 @@ def test_get_pack_with_custom_builder_and_mcp_servers():
         async def aopen(self) -> None: pass
         async def aclose(self) -> None: pass
 
-    import sys, types
+    import sys
+    import types
     mod = types.ModuleType("_test_custom_mcp_builder_mod")
     mod.build = lambda ws, net: _CustomPack()  # type: ignore[attr-defined]
     sys.modules["_test_custom_mcp_builder_mod"] = mod
