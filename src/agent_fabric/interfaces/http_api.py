@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 logger = logging.getLogger(__name__)
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_fabric.application.execute_task import execute_task
@@ -115,3 +117,142 @@ async def run(req: RunRequest):
         "required_capabilities": result.required_capabilities,
     }
     return out
+
+
+# ---------------------------------------------------------------------------
+# P8-2: SSE streaming endpoint
+# ---------------------------------------------------------------------------
+
+async def _sse_event_generator(
+    req: RunRequest,
+    event_queue: asyncio.Queue,
+) -> AsyncIterator[str]:
+    """Yield Server-Sent Events from the queue until the run-done sentinel."""
+    while True:
+        try:
+            # Poll with a short timeout so we don't block indefinitely if the
+            # background task dies without putting the sentinel.
+            event = await asyncio.wait_for(event_queue.get(), timeout=600.0)
+        except asyncio.TimeoutError:
+            # Yield a keep-alive comment and stop — the run took too long.
+            yield ": keep-alive timeout\n\n"
+            break
+
+        payload = json.dumps(event, ensure_ascii=False)
+        yield f"data: {payload}\n\n"
+
+        if event.get("kind") in ("_run_done_", "_run_error_"):
+            break
+
+
+@app.post("/run/stream")
+async def run_stream(req: RunRequest):
+    """Stream run events as Server-Sent Events (text/event-stream).
+
+    Each event is a JSON-encoded line in SSE format::
+
+        data: {"kind": "recruitment", "data": {...}, "step": null}\\n\\n
+        data: {"kind": "llm_request", ...}\\n\\n
+        ...
+        data: {"kind": "_run_done_", "data": {"run_id": "...", "ok": true}}\\n\\n
+
+    The stream ends when ``_run_done_`` (success) or ``_run_error_`` (error)
+    is received.
+    """
+    logger.info(
+        "POST /run/stream prompt=%r pack=%s model=%s network=%s",
+        req.prompt[:80], req.pack, req.model_key, req.network_allowed,
+    )
+    config = load_config()
+
+    try:
+        resolved = await asyncio.to_thread(resolve_llm, config, req.model_key)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    chat_client = build_chat_client(resolved.model_config)
+    run_repository = FileSystemRunRepository(workspace_root=_workspace_root())
+    specialist_registry = ConfigSpecialistRegistry(config)
+    task = build_task(req.prompt, req.pack, req.model_key, req.network_allowed)
+
+    # Bounded queue — prevents unbounded memory accumulation if the client reads slowly.
+    event_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+
+    async def _run_task_background() -> None:
+        try:
+            await execute_task(
+                task,
+                chat_client=chat_client,
+                run_repository=run_repository,
+                specialist_registry=specialist_registry,
+                config=config,
+                resolved_model_cfg=resolved.model_config,
+                max_steps=40,
+                event_queue=event_queue,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Put an error sentinel so the SSE generator terminates cleanly.
+            try:
+                event_queue.put_nowait({
+                    "kind": "_run_error_",
+                    "data": {"error": str(exc), "error_type": type(exc).__name__},
+                    "step": None,
+                })
+            except asyncio.QueueFull:
+                pass
+
+    asyncio.create_task(_run_task_background())
+
+    return StreamingResponse(
+        _sse_event_generator(req, event_queue),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# P8-3: Run status endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/runs/{run_id}/status")
+async def run_status(run_id: str):
+    """Return the status of a run by run_id.
+
+    Response:
+    - ``{"status": "completed", "run_id": "...", "specialist_ids": [...]}``
+      when a ``run_complete`` event is found in the runlog.
+    - ``{"status": "running", "run_id": "..."}``
+      when events exist but no ``run_complete`` event yet.
+    - 404 when the run_id is not found.
+    """
+    from agent_fabric.infrastructure.workspace.run_reader import read_run_events
+    from pathlib import Path
+
+    workspace_root = _workspace_root()
+    run_dir = str(Path(workspace_root) / "runs" / run_id)
+
+    if not Path(run_dir).is_dir():
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id!r}")
+
+    try:
+        events = list(read_run_events(run_id, workspace_root))
+    except FileNotFoundError:
+        # run dir exists but no runlog yet — run may still be initializing
+        return {"status": "running", "run_id": run_id}
+
+    if not events:
+        return {"status": "running", "run_id": run_id}
+
+    for ev in events:
+        if ev.get("kind") == "run_complete":
+            return {
+                "status": "completed",
+                "run_id": run_id,
+                "specialist_ids": ev.get("data", {}).get("specialist_ids", []),
+                "task_force_mode": ev.get("data", {}).get("task_force_mode", "sequential"),
+            }
+
+    return {"status": "running", "run_id": run_id}

@@ -2,13 +2,13 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-25. Fast CI: **342 pass** (T1 + T2 + T3 tiers complete; Phases 2–7 complete; all P6-1 through P7-4 done).
+**Last updated:** 2026-02-25. Fast CI: **368 pass** (T1 + T2 + T3 tiers complete; Phases 2–8 complete; all P6-1 through P8-4 done).
 
 ---
 
-## Current phase: **Phase 7 complete**
+## Current phase: **Phase 8 complete**
 
-Phases 6 and 7 are both **complete**. Phase 7 items (P7-1 through P7-4) are all done. All four Phase 6 deliverables (P6-1 through P6-4) are also done:
+Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are all done.
 
 - **P6-1:** Persistent cross-run run index (`run_index.jsonl`) + `fabric logs search`.
 - **P6-2:** Real MCP server smoke test (`tests/test_mcp_real_server.py`, `@pytest.mark.real_mcp`).
@@ -18,6 +18,10 @@ Phases 6 and 7 are both **complete**. Phase 7 items (P7-1 through P7-4) are all 
 - **P7-2:** GitHub MCP real integration test + `docs/MCP_INTEGRATIONS.md`; `github_search` + `enterprise_search` capabilities added.
 - **P7-3:** `enterprise_research` specialist — `cross_run_search` tool (queries run index), staleness/confidence system prompt, `enterprise_search` + `github_search` capabilities; in `DEFAULT_CONFIG`. 16 tests.
 - **P7-4:** Docs update — STATE.md, PLAN.md, VISION.md §7+§8, BACKLOG.md all updated.
+- **P8-1:** Parallel task force execution — `task_force_mode` on `FabricConfig`; `_run_task_force_parallel()` + `_merge_parallel_payloads()` in `execute_task.py`; 14 tests.
+- **P8-2:** SSE run event streaming — `event_queue: Optional[asyncio.Queue]` on `execute_task()`; `_emit()` helper; `POST /run/stream` SSE endpoint; `run_complete` runlog event; 6 tests.
+- **P8-3:** Run status endpoint — `GET /runs/{run_id}/status`; reads `run_complete` event for completion detection; 6 tests.
+- **P8-4:** Docs update — STATE.md, BACKLOG.md, PLAN.md updated.
 
 ---
 
@@ -143,8 +147,8 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **304 pass** before touching code.
-3. Phase 7 is complete — see BACKLOG.md for Phase 8 planning or add new items.
+2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **368 pass** before touching code.
+3. Phase 8 is complete — see BACKLOG.md for Phase 9 planning or add new items.
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---

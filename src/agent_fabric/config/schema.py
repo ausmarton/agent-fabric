@@ -256,6 +256,17 @@ class FabricConfig(BaseModel):
             "model. Falls back to the task model if the key is not present in 'models'."
         ),
     )
+    task_force_mode: str = Field(
+        "sequential",
+        description=(
+            "Execution mode for multi-pack task forces.\n"
+            "  'sequential' (default): packs run one after another; each pack receives "
+            "    context (finish payload) from the previous pack.\n"
+            "  'parallel': all packs run concurrently via asyncio.gather; each gets the "
+            "    original task prompt with no inter-pack context forwarding; results are "
+            "    merged into a combined payload with 'pack_results' key."
+        ),
+    )
 
 
 # Default: Ollama on localhost:11434

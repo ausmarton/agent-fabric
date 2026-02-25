@@ -14,7 +14,7 @@ referenced source files, and [DECISIONS.md](DECISIONS.md).
 **How to resume after an interruption**
 1. Read [STATE.md](STATE.md) — confirms current phase and last verified state.
 2. Read this file — find the first non-done item; that is what to work on.
-3. Run `pytest tests/ -k "not real_llm and not verify and not real_mcp"` — confirm **342 pass** before touching code.
+3. Run `pytest tests/ -k "not real_llm and not verify and not real_mcp"` — confirm **368 pass** before touching code.
 4. Start the item; mark it IN PROGRESS here and in STATE.md.
 
 ---
@@ -512,6 +512,41 @@ PLAN.md Phase 3 deliverables ticked off.
 **What:** Added `mcp = ["mcp>=1.0"]` to `[project.optional-dependencies]`; also added `mcp>=1.0` to `dev` so CI tests can mock it. Updated BACKLOG.md (this section), STATE.md (phase → Phase 5 complete, CI count → ~242), PLAN.md (Phase 5 concrete deliverables).
 
 **Files:** `pyproject.toml`, `docs/BACKLOG.md`, `docs/STATE.md`, `docs/PLAN.md`
+
+---
+
+## Phase 8 items — **complete**
+
+Phase 7 is complete (P7-1 through P7-4 all done; fast CI: 342 pass). Phase 8 focused on concurrency (parallel task forces), real-time streaming, and run status observability. All P8-1 through P8-4 done; fast CI: **368 pass**.
+
+---
+
+### ~~P8-1: Parallel task force execution~~ **DONE 2026-02-25**
+
+- `config/schema.py`: Added `task_force_mode: str = Field("sequential", ...)` to `FabricConfig`.
+- `execute_task.py`: `_run_task_force_parallel()` + `_merge_parallel_payloads()`; parallel path via `asyncio.gather`; sequential is default/unchanged.
+- 14 tests in `tests/test_parallel_task_force.py`.
+
+---
+
+### ~~P8-2: SSE run event streaming (HTTP API)~~ **DONE 2026-02-25**
+
+- `execute_task.py`: `event_queue: Optional[asyncio.Queue]` param; `_emit()` helper; all events mirrored to queue; `run_complete` + `_run_done_` sentinels.
+- `interfaces/http_api.py`: `POST /run/stream` returns `text/event-stream`; background asyncio task.
+- 6 tests in `tests/test_run_streaming.py`.
+
+---
+
+### ~~P8-3: Run status endpoint~~ **DONE 2026-02-25**
+
+- `interfaces/http_api.py`: `GET /runs/{run_id}/status` — reads runlog; returns `completed/running`; 404 if not found.
+- 6 tests in `tests/test_run_status.py`.
+
+---
+
+### ~~P8-4: Docs update for Phase 8~~ **DONE 2026-02-25**
+
+- STATE.md, BACKLOG.md, PLAN.md updated.
 
 ---
 

@@ -2,7 +2,8 @@
 
 Flow: recruit specialist(s) → create run → for each specialist, run a tool
 loop until finish_task or max_steps; context from earlier packs is forwarded
-to later packs so the task force shares progress.
+to later packs so the task force shares progress (sequential mode), or all
+packs run concurrently with the same initial prompt (parallel mode).
 
 Dependencies are injected (ports only); this module never imports from
 ``infrastructure`` or ``interfaces``.
@@ -10,6 +11,7 @@ Dependencies are injected (ports only); this module never imports from
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -27,6 +29,21 @@ logger = logging.getLogger(__name__)
 _FINISH_TOOL_RESULT_CONTENT = json.dumps({"ok": True, "status": "task_completed"})
 
 
+def _emit(
+    queue: Optional[asyncio.Queue],
+    kind: str,
+    data: Dict[str, Any],
+    step: Optional[str] = None,
+) -> None:
+    """Put a run event to the streaming queue (no-op when queue is None or full)."""
+    if queue is None:
+        return
+    try:
+        queue.put_nowait({"kind": kind, "data": data, "step": step})
+    except asyncio.QueueFull:
+        logger.debug("event_queue full; dropping event kind=%s", kind)
+
+
 async def execute_task(
     task: Task,
     *,
@@ -36,6 +53,7 @@ async def execute_task(
     config: FabricConfig,
     resolved_model_cfg: Optional[ModelConfig] = None,
     max_steps: int = 40,
+    event_queue: Optional[asyncio.Queue] = None,
 ) -> RunResult:
     """Execute a task end-to-end.
 
@@ -56,6 +74,11 @@ async def execute_task(
         resolved_model_cfg: Pre-resolved model config (e.g. from ``resolve_llm``).
             Falls back to ``config.models[task.model_key]`` when not provided.
         max_steps: Maximum LLM turns *per specialist* before aborting.
+        event_queue: Optional asyncio.Queue for real-time event streaming (P8-2).
+            When provided, every run-log event is also put to this queue so callers
+            (e.g. the SSE HTTP endpoint) can forward events in real-time.
+            A sentinel ``{"kind": "_run_done_", ...}`` or ``{"kind": "_run_error_", ...}``
+            is put when execution finishes.  When ``None`` (default), no queue interaction.
 
     Returns:
         ``RunResult`` with payload set to the arguments of the final pack's
@@ -124,89 +147,122 @@ async def execute_task(
     )
 
     # Log recruitment event — include both singular and plural keys for compat.
-    run_repository.append_event(
-        run_id,
-        "recruitment",
-        {
-            "specialist_id": specialist_ids[0],   # Phase 2 compat: primary specialist
-            "specialist_ids": specialist_ids,       # Phase 3: full task force list
-            "required_capabilities": required_capabilities,
-            "routing_method": routing_method,
-            "is_task_force": is_task_force,
-        },
-        step=None,
-    )
+    _recruitment_event = {
+        "specialist_id": specialist_ids[0],   # Phase 2 compat: primary specialist
+        "specialist_ids": specialist_ids,       # Phase 3: full task force list
+        "required_capabilities": required_capabilities,
+        "routing_method": routing_method,
+        "is_task_force": is_task_force,
+    }
+    run_repository.append_event(run_id, "recruitment", _recruitment_event, step=None)
+    _emit(event_queue, "recruitment", _recruitment_event)
 
     # --- pack loop ---------------------------------------------------------------
-    # Each specialist gets a fresh message context.  Subsequent specialists receive
-    # the previous pack's finish payload as additional context so they can build on
-    # what was already done.
     tracer = get_tracer()
-    prev_finish_payload: Optional[Dict[str, Any]] = None
     final_payload: Dict[str, Any] = {}
+    task_force_mode = config.task_force_mode if is_task_force else "sequential"
 
     with tracer.start_as_current_span("fabric.execute_task") as root_span:
         root_span.set_attribute("run_id", run_id.value)
         root_span.set_attribute("specialist_ids", ",".join(specialist_ids))
         root_span.set_attribute("is_task_force", is_task_force)
         root_span.set_attribute("routing_method", routing_method)
+        root_span.set_attribute("task_force_mode", task_force_mode)
 
-        for pack_idx, specialist_id in enumerate(specialist_ids):
-            pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
-
-            if is_task_force:
-                run_repository.append_event(
-                    run_id,
-                    "pack_start",
-                    {"specialist_id": specialist_id, "pack_index": pack_idx},
-                    step=None,
-                )
-                logger.info(
-                    "Task force: starting pack %d/%d specialist=%s run_id=%s",
-                    pack_idx + 1, len(specialist_ids), specialist_id, run_id.value,
-                )
-
-            # Build initial messages for this pack.
-            if prev_finish_payload is None:
-                user_content = f"Task:\n{task.prompt}"
-            else:
-                prev_specialist_id = specialist_ids[pack_idx - 1]
-                context_block = json.dumps(prev_finish_payload, indent=2, ensure_ascii=False)
-                user_content = (
-                    f"Task:\n{task.prompt}\n\n"
-                    f"Context from '{prev_specialist_id}' specialist "
-                    f"(prior task-force member):\n{context_block}"
-                )
-
-            messages: List[Dict[str, Any]] = [
-                {"role": "system", "content": pack.system_prompt},
-                {"role": "user", "content": user_content},
-            ]
-
-            # Use pack-prefixed step names for task forces so the runlog clearly
-            # shows which pack each step belongs to.
-            step_prefix = f"{specialist_id}_" if is_task_force else ""
-
-            pack_payload = await _execute_pack_loop(
-                pack=pack,
-                messages=messages,
+        if task_force_mode == "parallel" and len(specialist_ids) > 1:
+            # Parallel: all packs run concurrently; each gets the original prompt.
+            # No inter-pack context forwarding.
+            tf_event = {
+                "specialist_ids": specialist_ids,
+                "mode": "parallel",
+            }
+            run_repository.append_event(run_id, "task_force_parallel", tf_event, step=None)
+            _emit(event_queue, "task_force_parallel", tf_event)
+            logger.info(
+                "Task force PARALLEL: specialists=%s run_id=%s",
+                specialist_ids, run_id.value,
+            )
+            final_payload = await _run_task_force_parallel(
+                specialist_ids=specialist_ids,
+                task=task,
+                workspace_path=workspace_path,
                 model_cfg=model_cfg,
                 chat_client=chat_client,
                 run_repository=run_repository,
                 run_id=run_id,
-                step_prefix=step_prefix,
                 max_steps=max_steps,
                 tracer=tracer,
-                specialist_id=specialist_id,
+                event_queue=event_queue,
+                specialist_registry=specialist_registry,
             )
 
-            prev_finish_payload = pack_payload
-            final_payload = pack_payload
+        else:
+            # Sequential: each pack receives context from the previous pack (P3 behaviour).
+            prev_finish_payload: Optional[Dict[str, Any]] = None
+
+            for pack_idx, specialist_id in enumerate(specialist_ids):
+                pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
+
+                if is_task_force:
+                    pack_start_ev = {"specialist_id": specialist_id, "pack_index": pack_idx}
+                    run_repository.append_event(run_id, "pack_start", pack_start_ev, step=None)
+                    _emit(event_queue, "pack_start", pack_start_ev)
+                    logger.info(
+                        "Task force SEQUENTIAL: starting pack %d/%d specialist=%s run_id=%s",
+                        pack_idx + 1, len(specialist_ids), specialist_id, run_id.value,
+                    )
+
+                # Build initial messages for this pack.
+                if prev_finish_payload is None:
+                    user_content = f"Task:\n{task.prompt}"
+                else:
+                    prev_specialist_id = specialist_ids[pack_idx - 1]
+                    context_block = json.dumps(prev_finish_payload, indent=2, ensure_ascii=False)
+                    user_content = (
+                        f"Task:\n{task.prompt}\n\n"
+                        f"Context from '{prev_specialist_id}' specialist "
+                        f"(prior task-force member):\n{context_block}"
+                    )
+
+                messages: List[Dict[str, Any]] = [
+                    {"role": "system", "content": pack.system_prompt},
+                    {"role": "user", "content": user_content},
+                ]
+
+                # Use pack-prefixed step names for task forces so the runlog clearly
+                # shows which pack each step belongs to.
+                step_prefix = f"{specialist_id}_" if is_task_force else ""
+
+                pack_payload = await _execute_pack_loop(
+                    pack=pack,
+                    messages=messages,
+                    model_cfg=model_cfg,
+                    chat_client=chat_client,
+                    run_repository=run_repository,
+                    run_id=run_id,
+                    step_prefix=step_prefix,
+                    max_steps=max_steps,
+                    tracer=tracer,
+                    specialist_id=specialist_id,
+                    event_queue=event_queue,
+                )
+
+                prev_finish_payload = pack_payload
+                final_payload = pack_payload
 
     logger.info(
-        "Task completed: run_id=%s specialists=%s is_task_force=%s",
-        run_id.value, specialist_ids, is_task_force,
+        "Task completed: run_id=%s specialists=%s is_task_force=%s mode=%s",
+        run_id.value, specialist_ids, is_task_force, task_force_mode,
     )
+
+    # Write a "run_complete" event — makes run status detection trivial (P8-3).
+    _run_complete_ev = {
+        "run_id": run_id.value,
+        "specialist_ids": specialist_ids,
+        "task_force_mode": task_force_mode,
+    }
+    run_repository.append_event(run_id, "run_complete", _run_complete_ev, step=None)
+    _emit(event_queue, "run_complete", _run_complete_ev)
 
     result = RunResult(
         run_id=run_id,
@@ -275,6 +331,9 @@ async def execute_task(
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to append to run index: %s", exc)
 
+    # Signal streaming clients that the run is finished.
+    _emit(event_queue, "_run_done_", {"run_id": result.run_id.value, "ok": True})
+
     return result
 
 
@@ -282,6 +341,98 @@ def _run_dir_to_workspace_root(run_dir: str) -> str:
     """Derive workspace_root from run_dir (``{root}/runs/{run_id}`` → ``{root}``)."""
     from pathlib import Path
     return str(Path(run_dir).parent.parent)
+
+
+# ---------------------------------------------------------------------------
+# Parallel task force helpers
+# ---------------------------------------------------------------------------
+
+async def _run_task_force_parallel(
+    *,
+    specialist_ids: List[str],
+    task: Any,  # Task domain object
+    workspace_path: str,
+    model_cfg: ModelConfig,
+    chat_client: ChatClient,
+    run_repository: RunRepository,
+    run_id: RunId,
+    max_steps: int,
+    tracer: Any,
+    event_queue: Optional[asyncio.Queue],
+    specialist_registry: Any,  # SpecialistRegistry protocol
+) -> Dict[str, Any]:
+    """Run all specialist packs concurrently and merge their payloads.
+
+    Each pack receives the original task prompt with no inter-pack context
+    forwarding. Pack errors are captured and included in the merged result
+    so one failing pack does not abort the whole task force.
+    """
+    async def _run_one(specialist_id: str, pack_idx: int) -> Dict[str, Any]:
+        pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
+        pack_start_ev = {"specialist_id": specialist_id, "pack_index": pack_idx}
+        run_repository.append_event(run_id, "pack_start", pack_start_ev, step=None)
+        _emit(event_queue, "pack_start", pack_start_ev)
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": pack.system_prompt},
+            {"role": "user", "content": f"Task:\n{task.prompt}"},
+        ]
+        step_prefix = f"{specialist_id}_"
+        return await _execute_pack_loop(
+            pack=pack,
+            messages=messages,
+            model_cfg=model_cfg,
+            chat_client=chat_client,
+            run_repository=run_repository,
+            run_id=run_id,
+            step_prefix=step_prefix,
+            max_steps=max_steps,
+            tracer=tracer,
+            specialist_id=specialist_id,
+            event_queue=event_queue,
+        )
+
+    results = await asyncio.gather(
+        *[_run_one(sid, idx) for idx, sid in enumerate(specialist_ids)],
+        return_exceptions=True,
+    )
+    return _merge_parallel_payloads(list(results), specialist_ids)
+
+
+def _merge_parallel_payloads(
+    payloads: List[Any],
+    specialist_ids: List[str],
+) -> Dict[str, Any]:
+    """Merge parallel pack payloads into a single combined result dict.
+
+    Returns a dict with:
+    - ``pack_results``: mapping from specialist_id → individual payload (or error dict)
+    - ``summary``: concatenated per-pack summaries joined with `` | ``
+    - ``action``, ``artifacts``, ``next_steps``: standard finish_task fields
+    """
+    pack_results: Dict[str, Any] = {}
+    summaries: List[str] = []
+
+    for sid, payload in zip(specialist_ids, payloads):
+        if isinstance(payload, BaseException):
+            pack_results[sid] = {
+                "error": str(payload),
+                "error_type": type(payload).__name__,
+            }
+            summaries.append(f"{sid}: error — {payload}")
+        else:
+            pack_results[sid] = payload
+            pack_summary = payload.get("summary") or payload.get("executive_summary") or ""
+            if pack_summary:
+                summaries.append(f"{sid}: {pack_summary}")
+
+    combined_summary = " | ".join(summaries) if summaries else "Parallel task force completed."
+    return {
+        "action": "final",
+        "pack_results": pack_results,
+        "summary": combined_summary,
+        "artifacts": [],
+        "next_steps": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +451,7 @@ async def _execute_pack_loop(
     max_steps: int = 40,
     tracer: Any = None,
     specialist_id: str = "",
+    event_queue: Optional[asyncio.Queue] = None,
 ) -> Dict[str, Any]:
     """Run one specialist pack's tool loop until ``finish_task`` or ``max_steps``.
 
@@ -327,12 +479,9 @@ async def _execute_pack_loop(
         for step in range(max_steps):
             step_key = f"{step_prefix}step_{step}"
             logger.debug("Step %s: %d messages in context", step_key, len(messages))
-            run_repository.append_event(
-                run_id,
-                "llm_request",
-                {"step": step, "message_count": len(messages)},
-                step=step_key,
-            )
+            _llm_req_ev = {"step": step, "message_count": len(messages)}
+            run_repository.append_event(run_id, "llm_request", _llm_req_ev, step=step_key)
+            _emit(event_queue, "llm_request", _llm_req_ev, step=step_key)
 
             with tracer.start_as_current_span("fabric.llm_call") as llm_span:
                 llm_span.set_attribute("step", step)
@@ -356,24 +505,22 @@ async def _execute_pack_loop(
                     run_repository.append_event(
                         run_id, "cloud_fallback", fb_event, step=step_key,
                     )
+                    _emit(event_queue, "cloud_fallback", fb_event, step=step_key)
                     logger.info(
                         "Cloud fallback used: step=%s reason=%s local=%s cloud=%s",
                         step_key, fb_event.get("reason"),
                         fb_event.get("local_model"), fb_event.get("cloud_model"),
                     )
 
-            run_repository.append_event(
-                run_id,
-                "llm_response",
-                {
-                    "content": (response.content or "")[:MAX_LLM_CONTENT_IN_RUNLOG_CHARS],
-                    "tool_calls": [
-                        {"name": tc.tool_name, "call_id": tc.call_id}
-                        for tc in response.tool_calls
-                    ],
-                },
-                step=step_key,
-            )
+            _llm_resp_ev = {
+                "content": (response.content or "")[:MAX_LLM_CONTENT_IN_RUNLOG_CHARS],
+                "tool_calls": [
+                    {"name": tc.tool_name, "call_id": tc.call_id}
+                    for tc in response.tool_calls
+                ],
+            }
+            run_repository.append_event(run_id, "llm_response", _llm_resp_ev, step=step_key)
+            _emit(event_queue, "llm_response", _llm_resp_ev, step=step_key)
 
             if not response.has_tool_calls:
                 # LLM responded with plain text (no tool calls) — treat as final.
@@ -400,12 +547,9 @@ async def _execute_pack_loop(
             finish_payload: Optional[Dict[str, Any]] = None
 
             for tc in response.tool_calls:
-                run_repository.append_event(
-                    run_id,
-                    "tool_call",
-                    {"tool": tc.tool_name, "args": tc.arguments},
-                    step=step_key,
-                )
+                _tc_ev = {"tool": tc.tool_name, "args": tc.arguments}
+                run_repository.append_event(run_id, "tool_call", _tc_ev, step=step_key)
+                _emit(event_queue, "tool_call", _tc_ev, step=step_key)
 
                 if tc.tool_name == pack.finish_tool_name:
                     # Structural quality gate: the LLM must attempt at least one
@@ -434,12 +578,9 @@ async def _execute_pack_loop(
                         messages.append(
                             _make_tool_result(tc.call_id, json.dumps(error_result))
                         )
-                        run_repository.append_event(
-                            run_id,
-                            "tool_result",
-                            {"tool": tc.tool_name, "result": error_result},
-                            step=step_key,
-                        )
+                        _no_work_ev = {"tool": tc.tool_name, "result": error_result}
+                        run_repository.append_event(run_id, "tool_result", _no_work_ev, step=step_key)
+                        _emit(event_queue, "tool_result", _no_work_ev, step=step_key)
                         continue  # Do NOT set finish_payload; LLM must do work first.
 
                     # Validate required fields before accepting as the final payload.
@@ -462,22 +603,16 @@ async def _execute_pack_loop(
                         messages.append(
                             _make_tool_result(tc.call_id, json.dumps(error_result))
                         )
-                        run_repository.append_event(
-                            run_id,
-                            "tool_result",
-                            {"tool": tc.tool_name, "result": error_result},
-                            step=step_key,
-                        )
+                        _missing_fields_ev = {"tool": tc.tool_name, "result": error_result}
+                        run_repository.append_event(run_id, "tool_result", _missing_fields_ev, step=step_key)
+                        _emit(event_queue, "tool_result", _missing_fields_ev, step=step_key)
                         continue  # Do NOT set finish_payload; LLM must retry.
 
                     finish_payload = {"action": "final", **tc.arguments}
                     messages.append(_make_tool_result(tc.call_id, _FINISH_TOOL_RESULT_CONTENT))
-                    run_repository.append_event(
-                        run_id,
-                        "tool_result",
-                        {"tool": tc.tool_name, "result": {"status": "task_completed"}},
-                        step=step_key,
-                    )
+                    _finish_ev = {"tool": tc.tool_name, "result": {"status": "task_completed"}}
+                    run_repository.append_event(run_id, "tool_result", _finish_ev, step=step_key)
+                    _emit(event_queue, "tool_result", _finish_ev, step=step_key)
                     continue
 
                 # Mark that the LLM has attempted at least one non-finish tool.
@@ -518,16 +653,13 @@ async def _execute_pack_loop(
                         "Step %s: tool %r error (%s): %s",
                         step_key, tc.tool_name, error_type, error_message,
                     )
-                    run_repository.append_event(
-                        run_id,
-                        "tool_error",
-                        {
-                            "tool": tc.tool_name,
-                            "error_type": error_type,
-                            "error_message": error_message,
-                        },
-                        step=step_key,
-                    )
+                    _terr_ev = {
+                        "tool": tc.tool_name,
+                        "error_type": error_type,
+                        "error_message": error_message,
+                    }
+                    run_repository.append_event(run_id, "tool_error", _terr_ev, step=step_key)
+                    _emit(event_queue, "tool_error", _terr_ev, step=step_key)
                     if error_type == "permission":
                         # Sandbox violation — write a dedicated security_event so the
                         # audit trail is distinct from ordinary tool errors.
@@ -535,23 +667,17 @@ async def _execute_pack_loop(
                             "Security event: sandbox violation by tool %r: %s",
                             tc.tool_name, error_message,
                         )
-                        run_repository.append_event(
-                            run_id,
-                            "security_event",
-                            {
-                                "event_type": "sandbox_violation",
-                                "tool": tc.tool_name,
-                                "error_message": error_message,
-                            },
-                            step=step_key,
-                        )
+                        _sec_ev = {
+                            "event_type": "sandbox_violation",
+                            "tool": tc.tool_name,
+                            "error_message": error_message,
+                        }
+                        run_repository.append_event(run_id, "security_event", _sec_ev, step=step_key)
+                        _emit(event_queue, "security_event", _sec_ev, step=step_key)
                 else:
-                    run_repository.append_event(
-                        run_id,
-                        "tool_result",
-                        {"tool": tc.tool_name, "result": result},
-                        step=step_key,
-                    )
+                    _tresult_ev = {"tool": tc.tool_name, "result": result}
+                    run_repository.append_event(run_id, "tool_result", _tresult_ev, step=step_key)
+                    _emit(event_queue, "tool_result", _tresult_ev, step=step_key)
                 messages.append(_make_tool_result(tc.call_id, json.dumps(result, ensure_ascii=False)))
 
             if finish_payload is not None:
