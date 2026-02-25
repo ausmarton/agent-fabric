@@ -2,11 +2,11 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-25. Fast CI: **368 pass** (T1 + T2 + T3 tiers complete; Phases 2–8 complete; all P6-1 through P8-4 done).
+**Last updated:** 2026-02-26. Fast CI: **402 pass** (T1 + T2 + T3 tiers complete; Phases 2–9 complete).
 
 ---
 
-## Current phase: **Phase 8 complete**
+## Current phase: **Phase 9 complete**
 
 Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are all done.
 
@@ -147,8 +147,8 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **368 pass** before touching code.
-3. Phase 8 is complete — see BACKLOG.md for Phase 9 planning or add new items.
+2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **402 pass** before touching code.
+3. Phase 9 is complete — see BACKLOG.md for Phase 10 planning or add new items.
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---

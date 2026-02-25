@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 
 _FINISH_TOOL_RESULT_CONTENT = json.dumps({"ok": True, "status": "task_completed"})
 
+# How many consecutive plain-text (no-tool-call) responses are allowed before
+# we give up and treat the text as the final payload.  On each occurrence below
+# the limit we inject a corrective re-prompt nudging the LLM back on track.
+_MAX_PLAIN_TEXT_RETRIES = 2
+
 
 def _emit(
     queue: Optional[asyncio.Queue],
@@ -470,6 +475,10 @@ async def _execute_pack_loop(
     # finish_task is rejected until this is True so the LLM cannot claim
     # completion without having done any actual work.
     any_non_finish_tool_called = False
+    # Counts consecutive LLM responses with no tool calls.  On each hit below
+    # the retry limit we inject a corrective re-prompt; beyond the limit we
+    # accept the plain text as the final payload (graceful degradation).
+    consecutive_plain_text = 0
 
     # aopen() is INSIDE the try block so that aclose() runs even if aopen()
     # fails partway (e.g. MCPAugmentedPack partially connects before one
@@ -523,21 +532,58 @@ async def _execute_pack_loop(
             _emit(event_queue, "llm_response", _llm_resp_ev, step=step_key)
 
             if not response.has_tool_calls:
-                # LLM responded with plain text (no tool calls) — treat as final.
-                # This handles models that don't support function calling and simply
-                # respond in prose.
+                consecutive_plain_text += 1
+                if consecutive_plain_text <= _MAX_PLAIN_TEXT_RETRIES:
+                    # Inject a corrective re-prompt so the LLM knows it must call
+                    # a tool.  This recovers from the common failure mode where the
+                    # model narrates what it would do instead of doing it, especially
+                    # after receiving a tool error (e.g. sandbox path violation).
+                    tool_names = [
+                        t["function"]["name"] for t in pack.tool_definitions
+                    ]
+                    correction = (
+                        "You must call one of the available tools to continue — "
+                        "do not respond with plain text.\n"
+                        f"Available tools: {', '.join(tool_names)}.\n"
+                        "If the task is fully complete, call finish_task. "
+                        "Otherwise, use a tool to make progress."
+                    )
+                    messages.append({"role": "assistant", "content": response.content or ""})
+                    messages.append({"role": "user", "content": correction})
+                    logger.warning(
+                        "Step %s: LLM returned plain text (attempt %d/%d); injecting corrective re-prompt",
+                        step_key, consecutive_plain_text, _MAX_PLAIN_TEXT_RETRIES,
+                    )
+                    _reprompt_ev = {
+                        "reason": "plain_text_response",
+                        "attempt": consecutive_plain_text,
+                        "max_retries": _MAX_PLAIN_TEXT_RETRIES,
+                    }
+                    run_repository.append_event(
+                        run_id, "corrective_reprompt", _reprompt_ev, step=step_key,
+                    )
+                    _emit(event_queue, "corrective_reprompt", _reprompt_ev, step=step_key)
+                    continue  # retry — LLM sees the correction
+
+                # Exceeded retry limit — accept text as degraded final payload.
                 logger.warning(
-                    "Step %s: LLM returned plain text with no tool calls; using as final payload",
-                    step_key,
+                    "Step %s: LLM returned plain text %d time(s); using as final payload",
+                    step_key, consecutive_plain_text,
                 )
                 payload = {
                     "action": "final",
                     "summary": response.content or "",
                     "artifacts": [],
                     "next_steps": [],
-                    "notes": "Model did not call finish_task; using text response as summary.",
+                    "notes": (
+                        f"Model returned plain text {consecutive_plain_text} time(s) "
+                        "without calling a tool; used text response as summary."
+                    ),
                 }
                 break
+
+            # LLM returned tool calls — reset the plain-text retry counter.
+            consecutive_plain_text = 0
 
             # Build the assistant turn with tool_calls for the conversation history.
             messages.append(

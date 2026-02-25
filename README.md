@@ -116,6 +116,12 @@ pip install agent-fabric
 fabric run "Create a file hello.txt with content Hello World, then list the workspace." --pack engineering
 ```
 
+Stream events as they happen with `--stream` (shows tool calls, LLM steps, results in real-time):
+
+```bash
+fabric run "Build a Flask /health endpoint with a test" --pack engineering --stream
+```
+
 You should see a run directory path and JSON with `"action": "final"`. Check:
 - `.fabric/runs/<run_id>/workspace/hello.txt` — artifact
 - `.fabric/runs/<run_id>/runlog.jsonl` — structured event log (tool calls, LLM responses, etc.)
@@ -135,6 +141,7 @@ fabric run PROMPT [OPTIONS]
     --model-key TEXT         Which model entry to use from config [default: quality]
     --network-allowed / --no-network-allowed
                              Allow web tools (web_search, fetch_url) [default: enabled]
+    --stream / -s            Stream run events to the terminal as they happen.
     --verbose                Enable DEBUG logging
 
 fabric serve [OPTIONS]
@@ -237,6 +244,15 @@ Each event is a `data: <json>\n\n` SSE line. Event kinds:
 | `run_complete` | Run finished successfully |
 | `_run_done_` | Terminal sentinel — stream ends |
 | `_run_error_` | Terminal sentinel — run failed |
+
+### Rate limiting
+
+When `FABRIC_RATE_LIMIT` is set to a positive integer, the API enforces a per-IP sliding-window rate limit (requests per minute). `GET /health` is always exempt. Excess requests receive `429 Too Many Requests` with a `Retry-After` header:
+
+```bash
+export FABRIC_RATE_LIMIT=60   # 60 requests per minute per IP (default: no limit)
+fabric serve
+```
 
 ### API key authentication
 
@@ -459,7 +475,7 @@ fabric logs show <run_id> --kinds tool_call,tool_result
 
 ## Testing
 
-**Fast CI** (no LLM required, ~45 seconds, 370+ tests):
+**Fast CI** (no LLM required, ~60 seconds, 402+ tests):
 
 ```bash
 pip install -e ".[dev]"

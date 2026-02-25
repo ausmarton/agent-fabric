@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import hmac
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
@@ -62,6 +64,59 @@ async def _auth_middleware(request: Request, call_next):
                 content={"error": "Unauthorized", "detail": "Invalid API key"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
+    return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Per-IP sliding-window rate limiter
+# ---------------------------------------------------------------------------
+
+# Deques of request timestamps (float) keyed by client IP.
+_rate_limit_windows: dict = collections.defaultdict(collections.deque)
+
+# Endpoints exempt from rate limiting (health check).
+_RATE_LIMIT_EXEMPT = {"/health"}
+
+
+@app.middleware("http")
+async def _rate_limit_middleware(request: Request, call_next):
+    """Optional per-IP sliding-window rate limiting.
+
+    Active when ``FABRIC_RATE_LIMIT`` is set to a positive integer (requests
+    per minute).  ``GET /health`` is always exempt.  When a client exceeds the
+    limit a ``429 Too Many Requests`` response is returned with a
+    ``Retry-After`` header.
+    """
+    limit_str = os.environ.get("FABRIC_RATE_LIMIT", "").strip()
+    if not limit_str or request.url.path in _RATE_LIMIT_EXEMPT:
+        return await call_next(request)
+
+    try:
+        limit = int(limit_str)
+    except ValueError:
+        return await call_next(request)
+
+    if limit <= 0:
+        return await call_next(request)
+
+    client_ip = request.client.host if request.client else "unknown"
+    window = _rate_limit_windows[client_ip]
+    now = time.monotonic()
+    cutoff = now - 60.0  # 1-minute window
+
+    # Remove timestamps older than the window.
+    while window and window[0] < cutoff:
+        window.popleft()
+
+    if len(window) >= limit:
+        retry_after = int(60 - (now - window[0])) + 1
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Too Many Requests", "detail": f"Rate limit: {limit} req/min"},
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    window.append(now)
     return await call_next(request)
 
 

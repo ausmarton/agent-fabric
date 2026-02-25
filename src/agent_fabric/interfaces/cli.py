@@ -29,6 +29,119 @@ def _workspace_root() -> str:
     return os.environ.get("FABRIC_WORKSPACE", ".fabric")
 
 
+def _render_stream_event(console, event: dict) -> None:  # noqa: ARG001
+    """Render a single run event to the terminal during streaming."""
+    kind = event.get("kind", "")
+    data = event.get("data", {})
+    step = event.get("step")
+    prefix = f"[dim]{step}[/dim] " if step else ""
+
+    if kind == "recruitment":
+        specialists = data.get("specialist_ids") or [data.get("specialist_id", "?")]
+        caps = data.get("required_capabilities", [])
+        caps_str = f"  [dim]capabilities: {', '.join(caps)}[/dim]" if caps else ""
+        console.print(f"{prefix}[cyan]→ routing[/cyan] {', '.join(specialists)}{caps_str}")
+
+    elif kind == "llm_request":
+        step_n = data.get("step", "?")
+        msg_count = data.get("message_count", "?")
+        console.print(f"{prefix}[dim]◆ step {step_n} — {msg_count} messages[/dim]")
+
+    elif kind == "tool_call":
+        tool = data.get("tool", "?")
+        args = data.get("args", {})
+        # Show a compact one-line summary of the args
+        args_str = ", ".join(f"{k}={repr(v)[:40]}" for k, v in list(args.items())[:3])
+        console.print(f"{prefix}[yellow]⚙ {tool}[/yellow]({args_str})")
+
+    elif kind == "tool_result":
+        tool = data.get("tool", "?")
+        result = data.get("result", {})
+        if isinstance(result, dict) and "error" in result:
+            console.print(f"{prefix}[red]✗ {tool}[/red]: {result.get('message', result['error'])}")
+        else:
+            # Show a short summary of the result
+            summary = _result_summary(result)
+            console.print(f"{prefix}[green]✓ {tool}[/green]: {summary}")
+
+    elif kind == "tool_error":
+        tool = data.get("tool", "?")
+        console.print(f"{prefix}[red]✗ {tool}[/red] ({data.get('error_type','error')}): {data.get('error_message','')}")
+
+    elif kind == "security_event":
+        console.print(f"{prefix}[bold red]⚠ sandbox violation[/bold red]: {data.get('error_message','')}")
+
+    elif kind == "corrective_reprompt":
+        attempt = data.get("attempt", "?")
+        max_r = data.get("max_retries", "?")
+        console.print(f"{prefix}[yellow]↺ re-prompt ({attempt}/{max_r}): LLM returned text; nudging to use a tool[/yellow]")
+
+    elif kind == "cloud_fallback":
+        console.print(f"{prefix}[magenta]☁ cloud fallback[/magenta]: {data.get('reason','?')} → {data.get('cloud_model','?')}")
+
+    elif kind == "pack_start":
+        console.print(f"{prefix}[bold cyan]◈ pack {data.get('specialist_id','?')} starting[/bold cyan]")
+
+    elif kind == "run_complete":
+        pass  # Final panel is printed after the loop
+
+    elif kind == "_run_error_":
+        console.print(f"[bold red]Run failed[/bold red]: {data.get('error', '?')}")
+
+
+def _result_summary(result) -> str:
+    """Build a short human-readable summary of a tool result dict."""
+    if not isinstance(result, dict):
+        return repr(result)[:60]
+    if "content" in result:
+        return f"{len(result['content'])} chars"
+    if "files" in result:
+        return f"{result.get('count', '?')} files"
+    if "returncode" in result:
+        rc = result["returncode"]
+        out = (result.get("stdout") or "").strip()[:60]
+        return f"rc={rc}" + (f" {out!r}" if out else "")
+    if "bytes" in result:
+        return f"{result['bytes']} bytes → {result.get('path','?')}"
+    if "path" in result:
+        return result["path"]
+    return repr(result)[:60]
+
+
+async def _run_with_streaming(
+    task, chat_client, run_repository, specialist_registry, config, resolved_model_cfg
+):
+    """Run execute_task with an event_queue and render events to the terminal in real-time."""
+    from rich.console import Console
+    event_queue: asyncio.Queue = asyncio.Queue(maxsize=512)
+    console = Console()
+
+    bg = asyncio.create_task(
+        execute_task(
+            task,
+            chat_client=chat_client,
+            run_repository=run_repository,
+            specialist_registry=specialist_registry,
+            config=config,
+            resolved_model_cfg=resolved_model_cfg,
+            max_steps=40,
+            event_queue=event_queue,
+        )
+    )
+
+    while True:
+        try:
+            event = await asyncio.wait_for(event_queue.get(), timeout=600.0)
+        except asyncio.TimeoutError:
+            console.print("[red]Stream timeout — no event for 600 s.[/red]")
+            break
+        _render_stream_event(console, event)
+        if event.get("kind") in ("run_complete", "_run_error_"):
+            break
+
+    return await bg
+
+
 @app.command()
 def run(
     prompt: str = typer.Argument(..., help="What you want the fabric to do."),
@@ -36,6 +149,7 @@ def run(
     model_key: str = typer.Option("quality", help="Which model profile to use (quality|fast)."),
     network_allowed: bool = typer.Option(True, help="Allow network tools (web_search, fetch_url)."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose (DEBUG) logging to stderr."),
+    stream: bool = typer.Option(False, "--stream", "-s", help="Stream events as they happen."),
 ) -> None:
     """Run a task end-to-end and print result + run directory."""
     logging.basicConfig(
@@ -52,25 +166,33 @@ def run(
         sys.exit(1)
 
     rprint(f"[dim]Using model: {resolved.model} at {resolved.base_url}[/dim]")
-    rprint("[dim]Running task...[/dim]")
 
     chat_client = build_chat_client(resolved.model_config)
     run_repository = FileSystemRunRepository(workspace_root=_workspace_root())
     specialist_registry = ConfigSpecialistRegistry(config)
-
     task = build_task(prompt, pack, model_key, network_allowed)
+
     try:
-        result = asyncio.run(
-            execute_task(
-                task,
-                chat_client=chat_client,
-                run_repository=run_repository,
-                specialist_registry=specialist_registry,
-                config=config,
-                resolved_model_cfg=resolved.model_config,
-                max_steps=40,
+        if stream:
+            result = asyncio.run(
+                _run_with_streaming(
+                    task, chat_client, run_repository, specialist_registry,
+                    config, resolved.model_config,
+                )
             )
-        )
+        else:
+            rprint("[dim]Running task...[/dim]")
+            result = asyncio.run(
+                execute_task(
+                    task,
+                    chat_client=chat_client,
+                    run_repository=run_repository,
+                    specialist_registry=specialist_registry,
+                    config=config,
+                    resolved_model_cfg=resolved.model_config,
+                    max_steps=40,
+                )
+            )
     except httpx.ConnectError as e:
         rprint(
             f"[red]LLM server unreachable.[/red]\n"

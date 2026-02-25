@@ -11,7 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [0.1.0] — 2026-02-25
+## [0.1.0] — 2026-02-26
 
 Initial public release of agent-fabric, covering Phases 1–8.
 
@@ -70,11 +70,19 @@ Initial public release of agent-fabric, covering Phases 1–8.
 - `run_complete` runlog event; `GET /runs/{id}/status` endpoint.
 - `_merge_parallel_payloads`: per-pack results with graceful error capture.
 
+**Phase 9 — UX and production hardening**
+- `fabric run --stream` (`-s`): real-time terminal rendering of all run events (tool calls, LLM steps, errors) using Rich.
+- Corrective re-prompt recovery: when the LLM returns plain text instead of a tool call, up to 2 automatic re-prompts nudge it back on track before falling back to text-as-payload.
+- Improved sandbox error messages: absolute-path violations now say "use a relative path (e.g. 'app.py')" instead of the cryptic "must be within sandbox root".
+- Engineering system prompt explicitly instructs the model to use relative paths.
+- Per-IP HTTP rate limiting: `FABRIC_RATE_LIMIT=<n>` env var (requests per minute); `GET /health` always exempt; `429 Too Many Requests` with `Retry-After` header.
+
 ### Infrastructure
 - Hexagonal (ports-and-adapters) architecture: `domain` → `application` → `infrastructure` → `interfaces`.
 - MIT licence; full contributor guide (`CONTRIBUTING.md`).
 - GitHub Actions CI: lint (ruff), test matrix (Python 3.10/3.11/3.12), security audit (pip-audit), build check.
-- Release workflow: automated GitHub Release on version tags.
+- Release workflow: automated PyPI publish (OIDC trusted publishing) + Docker image to GHCR on version tags.
+- Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agent-fabric + model-pull).
 
 [Unreleased]: https://github.com/ausmarton/agent-fabric/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/ausmarton/agent-fabric/releases/tag/v0.1.0

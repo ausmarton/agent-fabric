@@ -268,26 +268,46 @@ async def test_finish_task_allowed_after_failed_tool_call(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Plain-text (no tool calls) response
+# Plain-text (no tool calls) response + corrective re-prompt
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+async def test_plain_text_triggers_corrective_reprompt_then_finishes_by_tool(tmp_path):
+    """A plain-text response triggers a corrective re-prompt; the LLM then calls tools and finishes."""
+    plain = LLMResponse(content="Let me think about this...", tool_calls=[])
+    list_files = _tool_response("list_files", call_id="c0")
+    finish = _finish_response(summary="Done", call_id="c1")
+
+    result = await _run([plain, list_files, finish], tmp_path=tmp_path)
+
+    assert result.payload["action"] == "final"
+    assert result.payload["summary"] == "Done"
+    events = _read_runlog(result.run_dir)
+    reprompts = [e for e in events if e["kind"] == "corrective_reprompt"]
+    assert len(reprompts) == 1
+    assert reprompts[0]["payload"]["attempt"] == 1
+
+
+@pytest.mark.asyncio
 async def test_plain_text_response_produces_final_payload(tmp_path):
-    """If the LLM returns plain text with no tool calls, it becomes the final payload."""
+    """After _MAX_PLAIN_TEXT_RETRIES corrective re-prompts, plain text becomes the final payload."""
+    # 2 retries (re-prompted) + 1 final fallback = 3 LLM calls total.
     plain_response = LLMResponse(content="I have completed the task.", tool_calls=[])
 
-    result = await _run([plain_response], tmp_path=tmp_path)
+    result = await _run([plain_response] * 3, tmp_path=tmp_path)
 
     assert result.payload["action"] == "final"
     assert result.payload["summary"] == "I have completed the task."
-    assert "notes" in result.payload  # fallback note must be present
-    assert "finish_task" in result.payload["notes"]
+    assert "notes" in result.payload
+    events = _read_runlog(result.run_dir)
+    reprompts = [e for e in events if e["kind"] == "corrective_reprompt"]
+    assert len(reprompts) == 2  # _MAX_PLAIN_TEXT_RETRIES = 2
 
 
 @pytest.mark.asyncio
 async def test_plain_text_empty_content_produces_empty_summary(tmp_path):
     """Plain-text response with None content produces an empty summary (not a crash)."""
-    result = await _run([LLMResponse(content=None, tool_calls=[])], tmp_path=tmp_path)
+    result = await _run([LLMResponse(content=None, tool_calls=[])] * 3, tmp_path=tmp_path)
 
     assert result.payload["action"] == "final"
     assert result.payload["summary"] == ""
