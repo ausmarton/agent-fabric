@@ -9,6 +9,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+---
+
+## [0.3.1] — 2026-02-26
+
+Phase 13: Rust thin launcher, static musl binaries, and one-liner install script.
+
 ### Added
 
 **Phase 13 — Rust Thin Launcher**
