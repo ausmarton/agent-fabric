@@ -90,6 +90,16 @@ class BaseSpecialistPack:
             .get("required", [])
         )
 
+    def validate_finish_payload(self, payload: dict) -> Optional[str]:
+        """Return an error message string if the payload fails quality checks, else None.
+
+        Subclasses (e.g. EngineeringSpecialistPack) override this to enforce
+        pack-specific quality gates such as requiring tests to pass before
+        finish_task is accepted.  The base implementation always returns None
+        (no additional quality checks beyond required-field validation).
+        """
+        return None
+
     def set_feature_set(self, feature_set: "FeatureSet") -> None:
         """Replace the feature set.  Called by the registry after pack construction."""
         self._feature_set = feature_set

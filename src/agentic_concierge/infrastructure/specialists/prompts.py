@@ -28,6 +28,12 @@ the given task correctly using the available tools.
 3. Verify your work (run tests, check output).
 4. Call finish_task when complete, providing a clear summary and listing any
    files you created or modified.
+
+## Quality gate (mandatory)
+Before calling finish_task you MUST:
+1. Call run_tests() and confirm all tests pass.
+2. Set tests_verified=true in your finish_task call only after a passing test run.
+If tests fail: fix the code, re-run tests, and only then call finish_task.
 """
 
 SYSTEM_PROMPT_ENTERPRISE_RESEARCH = """\

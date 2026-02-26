@@ -41,6 +41,7 @@ def _eng_finish(call_id: str = "c1", summary: str = "Engineering done") -> LLMRe
                 "artifacts": ["tool.py"],
                 "next_steps": ["write docs"],
                 "notes": "",
+                "tests_verified": True,
             },
         )],
     )
@@ -79,6 +80,28 @@ def _routing_response(caps: list[str] | None = None) -> LLMResponse:
             call_id="r0",
             tool_name="select_capabilities",
             arguments={"capabilities": caps or ["code_execution", "systematic_review"]},
+        )],
+    )
+
+
+def _create_plan_response(specialist_ids: list[str] | None = None, mode: str = "sequential") -> LLMResponse:
+    """Mock orchestrator create_plan response (Phase 12: orchestrate_task uses this).
+
+    Prepend this response to any mock sequence for a task where specialist_id=None,
+    because execute_task now calls orchestrate_task before the pack loop.
+    """
+    sids = specialist_ids or ["engineering", "research"]
+    return LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(
+            call_id="orch0",
+            tool_name="create_plan",
+            arguments={
+                "assignments": [{"specialist_id": sid, "brief": ""} for sid in sids],
+                "mode": mode,
+                "synthesis_required": len(sids) > 1,
+                "reasoning": "test orchestration",
+            },
         )],
     )
 
@@ -235,7 +258,7 @@ async def test_task_force_runs_both_packs(tmp_path):
     """A mixed-capability prompt executes engineering then research packs."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
+        [_create_plan_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -250,7 +273,7 @@ async def test_task_force_runlog_has_pack_start_events(tmp_path):
     """Multi-pack runs log a pack_start event at the beginning of each pack."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
+        [_create_plan_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -268,7 +291,7 @@ async def test_task_force_runlog_step_names_are_pack_prefixed(tmp_path):
     """In a task force, step events use '{specialist_id}_step_N' naming."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
+        [_create_plan_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -284,7 +307,7 @@ async def test_task_force_shared_workspace(tmp_path):
     """Both packs in a task force write to the same workspace directory."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
+        [_create_plan_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 
@@ -304,7 +327,7 @@ async def test_task_force_context_passed_to_second_pack(tmp_path):
     """
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_routing_response(), _tool_resp("t0"), _eng_finish(summary="Created tool.py"),
+        [_create_plan_response(), _tool_resp("t0"), _eng_finish(summary="Created tool.py"),
          _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
@@ -325,7 +348,7 @@ async def test_task_force_result_payload_is_from_last_pack(tmp_path):
     """RunResult.payload comes from the last pack's finish_task call."""
     result, _ = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_routing_response(), _tool_resp("t0"), _eng_finish(summary="Engineering done"),
+        [_create_plan_response(), _tool_resp("t0"), _eng_finish(summary="Engineering done"),
          _tool_resp("t1"), _research_finish(summary="Research complete")],
         tmp_path=tmp_path,
     )
@@ -340,7 +363,7 @@ async def test_task_force_recruitment_event_includes_specialist_ids(tmp_path):
     """The recruitment runlog event includes specialist_ids (plural) and is_task_force."""
     result, events = await _run_task_force(
         "build a tool that does a systematic review of arxiv papers",
-        [_routing_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
+        [_create_plan_response(), _tool_resp("t0"), _eng_finish(), _tool_resp("t1"), _research_finish()],
         tmp_path=tmp_path,
     )
 

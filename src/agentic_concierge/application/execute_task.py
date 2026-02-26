@@ -6,7 +6,16 @@ to later packs so the task force shares progress (sequential mode), or all
 packs run concurrently with the same initial prompt (parallel mode).
 
 Dependencies are injected (ports only); this module never imports from
-``infrastructure`` or ``interfaces``.
+``interfaces``.
+
+Phase 12 additions:
+- Quality gate: ``pack.validate_finish_payload()`` called before accepting finish_task.
+- Orchestrator: ``orchestrate_task()`` replaces ``llm_recruit_specialist``;
+  injects per-specialist briefs; emits ``orchestration_plan`` runlog event.
+- Synthesis: ``_synthesise_results()`` merges multi-specialist outputs when
+  ``plan.synthesis_required`` is True.
+- Checkpoint: ``RunCheckpoint`` written/updated/deleted; ``resume_execute_task``
+  restarts an interrupted run from its checkpoint.
 """
 
 from __future__ import annotations
@@ -20,7 +29,8 @@ from agentic_concierge.config import ConciergeConfig, ModelConfig
 from agentic_concierge.config.constants import MAX_LLM_CONTENT_IN_RUNLOG_CHARS
 from agentic_concierge.domain import RecruitError, RunId, RunResult, Task
 from agentic_concierge.application.ports import ChatClient, RunRepository, SpecialistRegistry
-from agentic_concierge.application.recruit import llm_recruit_specialist, recruit_specialist, RecruitmentResult
+from agentic_concierge.application.recruit import llm_recruit_specialist, RecruitmentResult
+from agentic_concierge.application.orchestrator import orchestrate_task, OrchestrationPlan
 from agentic_concierge.infrastructure.telemetry import get_tracer
 
 logger = logging.getLogger(__name__)
@@ -49,6 +59,16 @@ def _emit(
         logger.debug("event_queue full; dropping event kind=%s", kind)
 
 
+def _get_brief(plan: Optional[OrchestrationPlan], specialist_id: str) -> str:
+    """Return the orchestrator's brief for this specialist, or '' if not available."""
+    if plan is None:
+        return ""
+    for b in plan.specialist_assignments:
+        if b.specialist_id == specialist_id:
+            return b.brief or ""
+    return ""
+
+
 async def execute_task(
     task: Task,
     *,
@@ -62,13 +82,14 @@ async def execute_task(
 ) -> RunResult:
     """Execute a task end-to-end.
 
-    1. Recruit specialist(s) (keyword-based if not set on ``task``).
+    1. Recruit specialist(s) via orchestrate_task (falls back to llm_recruit_specialist).
     2. Create a run directory + workspace.
     3. For each specialist, run a tool loop until ``finish_task`` or
        ``max_steps`` is reached.  When multiple specialists are recruited
        (a task force), the finish payload from each pack is forwarded as
        context to the next pack.
-    4. Return a ``RunResult`` with the run id, paths, and final payload.
+    4. Optionally synthesise multi-specialist outputs.
+    5. Return a ``RunResult`` with the run id, paths, and final payload.
 
     Args:
         task: Prompt, optional specialist override, model key, and network flag.
@@ -80,23 +101,15 @@ async def execute_task(
             Falls back to ``config.models[task.model_key]`` when not provided.
         max_steps: Maximum LLM turns *per specialist* before aborting.
         event_queue: Optional asyncio.Queue for real-time event streaming (P8-2).
-            When provided, every run-log event is also put to this queue so callers
-            (e.g. the SSE HTTP endpoint) can forward events in real-time.
-            A sentinel ``{"kind": "_run_done_", ...}`` or ``{"kind": "_run_error_", ...}``
-            is put when execution finishes.  When ``None`` (default), no queue interaction.
 
     Returns:
-        ``RunResult`` with payload set to the arguments of the final pack's
-        ``finish_task`` call (plus ``action: "final"``), or a timeout payload
-        if ``max_steps`` is reached for the last specialist.
+        ``RunResult`` with payload set to the final pack's ``finish_task`` args
+        (or a synthesised result for multi-specialist tasks with synthesis_required).
 
     Raises:
         RecruitError: When a specialist id is not found in config.
     """
     # --- cloud fallback wrapping -------------------------------------------------
-    # When cloud_fallback is configured, wrap the injected chat_client so each
-    # LLM call first tries the local model and re-issues to cloud when the policy
-    # triggers.  Absence of cloud_fallback config leaves chat_client unchanged.
     if config.cloud_fallback:
         cloud_cfg = config.models.get(config.cloud_fallback.model_key)
         if cloud_cfg is None:
@@ -117,6 +130,7 @@ async def execute_task(
 
     # --- recruit -----------------------------------------------------------------
     model_cfg = resolved_model_cfg or config.models.get(task.model_key) or config.models["quality"]
+    plan: Optional[OrchestrationPlan] = None
 
     if task.specialist_id:
         specialist_ids: List[str] = [task.specialist_id]
@@ -130,14 +144,14 @@ async def execute_task(
                 config.routing_model_key, model_cfg.model,
             )
             routing_cfg = model_cfg
-        recruitment: RecruitmentResult = await llm_recruit_specialist(
+        plan = await orchestrate_task(
             task.prompt, config,
             chat_client=chat_client,
             model=routing_cfg.model,
         )
-        specialist_ids = recruitment.specialist_ids
-        required_capabilities = recruitment.required_capabilities
-        routing_method = recruitment.routing_method
+        specialist_ids = [a.specialist_id for a in plan.specialist_assignments]
+        required_capabilities = plan.required_capabilities
+        routing_method = plan.routing_method
 
     for sid in specialist_ids:
         if sid not in config.specialists:
@@ -151,10 +165,15 @@ async def execute_task(
         specialist_ids, run_id.value, is_task_force,
     )
 
-    # Log recruitment event — include both singular and plural keys for compat.
+    task_force_mode = config.task_force_mode if is_task_force else "sequential"
+    # Allow orchestrator to override task_force_mode for multi-specialist runs
+    if plan is not None and is_task_force and plan.mode in ("sequential", "parallel"):
+        task_force_mode = plan.mode
+
+    # Log recruitment event
     _recruitment_event = {
-        "specialist_id": specialist_ids[0],   # Phase 2 compat: primary specialist
-        "specialist_ids": specialist_ids,       # Phase 3: full task force list
+        "specialist_id": specialist_ids[0],
+        "specialist_ids": specialist_ids,
         "required_capabilities": required_capabilities,
         "routing_method": routing_method,
         "is_task_force": is_task_force,
@@ -162,10 +181,37 @@ async def execute_task(
     run_repository.append_event(run_id, "recruitment", _recruitment_event, step=None)
     _emit(event_queue, "recruitment", _recruitment_event)
 
+    # Emit orchestration_plan event when orchestrator was used
+    if plan is not None and plan.routing_method == "orchestrator":
+        _orch_plan_ev = {
+            "assignments": [
+                {"specialist_id": b.specialist_id, "brief": b.brief}
+                for b in plan.specialist_assignments
+            ],
+            "mode": plan.mode,
+            "synthesis_required": plan.synthesis_required,
+            "reasoning": plan.reasoning,
+        }
+        run_repository.append_event(run_id, "orchestration_plan", _orch_plan_ev, step=None)
+        _emit(event_queue, "orchestration_plan", _orch_plan_ev)
+
+    # Create initial checkpoint (non-fatal; failure logs a warning)
+    _checkpoint = _create_initial_checkpoint(
+        run_id=run_id.value,
+        run_dir=run_dir,
+        workspace_path=workspace_path,
+        task=task,
+        specialist_ids=specialist_ids,
+        task_force_mode=task_force_mode,
+        model_cfg=model_cfg,
+        routing_method=routing_method,
+        required_capabilities=required_capabilities,
+        plan=plan,
+    )
+
     # --- pack loop ---------------------------------------------------------------
     tracer = get_tracer()
     final_payload: Dict[str, Any] = {}
-    task_force_mode = config.task_force_mode if is_task_force else "sequential"
 
     with tracer.start_as_current_span("concierge.execute_task") as root_span:
         root_span.set_attribute("run_id", run_id.value)
@@ -176,11 +222,7 @@ async def execute_task(
 
         if task_force_mode == "parallel" and len(specialist_ids) > 1:
             # Parallel: all packs run concurrently; each gets the original prompt.
-            # No inter-pack context forwarding.
-            tf_event = {
-                "specialist_ids": specialist_ids,
-                "mode": "parallel",
-            }
+            tf_event = {"specialist_ids": specialist_ids, "mode": "parallel"}
             run_repository.append_event(run_id, "task_force_parallel", tf_event, step=None)
             _emit(event_queue, "task_force_parallel", tf_event)
             logger.info(
@@ -199,11 +241,35 @@ async def execute_task(
                 tracer=tracer,
                 event_queue=event_queue,
                 specialist_registry=specialist_registry,
+                plan=plan,
             )
 
+            # Update checkpoint after all parallel specialists complete
+            _update_checkpoint(
+                _checkpoint, run_dir,
+                completed=specialist_ids,
+                payloads=final_payload.get("pack_results", {}),
+            )
+
+            # Synthesis step for parallel mode
+            if plan is not None and plan.synthesis_required:
+                try:
+                    final_payload = await _synthesise_results(
+                        original_prompt=task.prompt,
+                        specialist_payloads=final_payload.get("pack_results", {}),
+                        chat_client=chat_client,
+                        model_cfg=model_cfg,
+                        run_repository=run_repository,
+                        run_id=run_id,
+                        event_queue=event_queue,
+                    )
+                except Exception as exc:
+                    logger.warning("Synthesis failed (%s); using merged parallel result", exc)
+
         else:
-            # Sequential: each pack receives context from the previous pack (P3 behaviour).
+            # Sequential: each pack receives context from the previous pack.
             prev_finish_payload: Optional[Dict[str, Any]] = None
+            all_specialist_payloads: Dict[str, Any] = {}
 
             for pack_idx, specialist_id in enumerate(specialist_ids):
                 pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
@@ -229,13 +295,16 @@ async def execute_task(
                         f"(prior task-force member):\n{context_block}"
                     )
 
+                # Inject orchestrator brief if available
+                brief_text = _get_brief(plan, specialist_id)
+                if brief_text:
+                    user_content += f"\n\nYour specific assignment:\n{brief_text}"
+
                 messages: List[Dict[str, Any]] = [
                     {"role": "system", "content": pack.system_prompt},
                     {"role": "user", "content": user_content},
                 ]
 
-                # Use pack-prefixed step names for task forces so the runlog clearly
-                # shows which pack each step belongs to.
                 step_prefix = f"{specialist_id}_" if is_task_force else ""
 
                 pack_payload = await _execute_pack_loop(
@@ -252,15 +321,38 @@ async def execute_task(
                     event_queue=event_queue,
                 )
 
+                all_specialist_payloads[specialist_id] = pack_payload
                 prev_finish_payload = pack_payload
                 final_payload = pack_payload
+
+                # Update checkpoint after each specialist completes
+                _update_checkpoint(
+                    _checkpoint, run_dir,
+                    completed=list(all_specialist_payloads.keys()),
+                    payloads=dict(all_specialist_payloads),
+                )
+
+            # Synthesis step for sequential mode
+            if plan is not None and plan.synthesis_required and len(all_specialist_payloads) > 1:
+                try:
+                    final_payload = await _synthesise_results(
+                        original_prompt=task.prompt,
+                        specialist_payloads=all_specialist_payloads,
+                        chat_client=chat_client,
+                        model_cfg=model_cfg,
+                        run_repository=run_repository,
+                        run_id=run_id,
+                        event_queue=event_queue,
+                    )
+                except Exception as exc:
+                    logger.warning("Synthesis failed (%s); using last specialist result", exc)
 
     logger.info(
         "Task completed: run_id=%s specialists=%s is_task_force=%s mode=%s",
         run_id.value, specialist_ids, is_task_force, task_force_mode,
     )
 
-    # Write a "run_complete" event — makes run status detection trivial (P8-3).
+    # Write a "run_complete" event
     _run_complete_ev = {
         "run_id": run_id.value,
         "specialist_ids": specialist_ids,
@@ -269,19 +361,21 @@ async def execute_task(
     run_repository.append_event(run_id, "run_complete", _run_complete_ev, step=None)
     _emit(event_queue, "run_complete", _run_complete_ev)
 
+    # Delete checkpoint on successful completion
+    _delete_run_checkpoint(run_dir)
+
     result = RunResult(
         run_id=run_id,
         run_dir=run_dir,
         workspace_path=workspace_path,
-        specialist_id=specialist_ids[0],   # primary specialist (config order)
+        specialist_id=specialist_ids[0],
         model_name=model_cfg.model,
         payload=final_payload,
         required_capabilities=required_capabilities,
         specialist_ids=specialist_ids,
     )
 
-    # Append to the cross-run index so past runs are searchable.
-    # Failure is non-fatal — log a warning and return the result regardless.
+    # Append to the cross-run index (failure is non-fatal).
     try:
         from agentic_concierge.infrastructure.workspace.run_index import (
             RunIndexEntry,
@@ -307,14 +401,9 @@ async def execute_task(
             model_name=model_cfg.model,
         )
 
-        # P7-1: Optionally embed the entry for semantic search.
-        # When embedding_model is configured the prompt+summary are embedded
-        # and stored alongside the index entry.  Embedding failure is non-fatal.
         run_index_cfg = config.run_index
         if run_index_cfg.embedding_model:
-            embed_base = (
-                run_index_cfg.embedding_base_url or model_cfg.base_url
-            )
+            embed_base = run_index_cfg.embedding_base_url or model_cfg.base_url
             try:
                 embed_input = f"{task.prompt[:200]} {summary_text}".strip()
                 entry.embedding = await embed_text(
@@ -326,26 +415,435 @@ async def execute_task(
                     "RunIndex: embedded entry for run %s (model=%s dims=%d)",
                     run_id.value, run_index_cfg.embedding_model, len(entry.embedding),
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning(
                     "RunIndex: embedding failed for run %s (%s); index entry written without embedding",
                     run_id.value, exc,
                 )
 
         append_to_index(workspace_root, entry, run_index_config=config.run_index)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Failed to append to run index: %s", exc)
 
-    # Signal streaming clients that the run is finished.
     _emit(event_queue, "_run_done_", {"run_id": result.run_id.value, "ok": True})
 
     return result
 
 
-def _run_dir_to_workspace_root(run_dir: str) -> str:
-    """Derive workspace_root from run_dir (``{root}/runs/{run_id}`` → ``{root}``)."""
+# ---------------------------------------------------------------------------
+# Session continuation: resume an interrupted run
+# ---------------------------------------------------------------------------
+
+async def resume_execute_task(
+    run_id: str,
+    workspace_root: str,
+    *,
+    chat_client: ChatClient,
+    run_repository: RunRepository,
+    specialist_registry: SpecialistRegistry,
+    config: ConciergeConfig,
+    resolved_model_cfg: Optional[ModelConfig] = None,
+    max_steps: int = 40,
+    event_queue: Optional[asyncio.Queue] = None,
+) -> RunResult:
+    """Resume an interrupted run from its checkpoint.
+
+    Loads ``{workspace_root}/runs/{run_id}/checkpoint.json``, skips already-completed
+    specialists, seeds ``prev_finish_payload`` from the last completed specialist's
+    payload, and runs the remaining specialists through the existing sequential loop.
+
+    Args:
+        run_id: The run ID to resume.
+        workspace_root: Root of the workspace (contains ``runs/``).
+        chat_client: LLM interface.
+        run_repository: Run log and event repository.
+        specialist_registry: Resolves packs by specialist ID.
+        config: Concierge configuration.
+        resolved_model_cfg: Pre-resolved model config; falls back to checkpoint's model_key.
+        max_steps: Maximum LLM turns per specialist.
+        event_queue: Optional asyncio.Queue for streaming.
+
+    Returns:
+        ``RunResult`` with the final payload from the resumed run.
+
+    Raises:
+        ValueError: When no checkpoint is found or the run is already complete.
+    """
     from pathlib import Path
-    return str(Path(run_dir).parent.parent)
+    from agentic_concierge.infrastructure.workspace.run_checkpoint import (
+        load_checkpoint,
+        save_checkpoint,
+        delete_checkpoint,
+    )
+    from agentic_concierge.domain import RunId as _RunId
+
+    run_dir = str(Path(workspace_root) / "runs" / run_id)
+    checkpoint = load_checkpoint(run_dir)
+    if checkpoint is None:
+        raise ValueError(f"No checkpoint found for run {run_id!r}")
+
+    remaining_specialists = [
+        s for s in checkpoint.specialist_ids
+        if s not in checkpoint.completed_specialists
+    ]
+    if not remaining_specialists:
+        raise ValueError(f"Run {run_id!r} is already complete (all specialists finished)")
+
+    run_id_obj = _RunId(value=checkpoint.run_id)
+    specialist_ids = checkpoint.specialist_ids
+    model_cfg = (
+        resolved_model_cfg
+        or config.models.get(checkpoint.model_key)
+        or config.models["quality"]
+    )
+
+    # Reconstruct orchestration plan from checkpoint if available
+    plan: Optional[OrchestrationPlan] = None
+    if checkpoint.orchestration_plan is not None:
+        from agentic_concierge.application.orchestrator import SpecialistBrief
+        assignments = [
+            SpecialistBrief(a["specialist_id"], a.get("brief", ""))
+            for a in checkpoint.orchestration_plan.get("assignments", [])
+        ]
+        plan = OrchestrationPlan(
+            specialist_assignments=assignments,
+            mode=checkpoint.orchestration_plan.get("mode", "sequential"),
+            synthesis_required=checkpoint.orchestration_plan.get("synthesis_required", False),
+            reasoning=checkpoint.orchestration_plan.get("reasoning", ""),
+            routing_method=checkpoint.routing_method,
+            required_capabilities=checkpoint.required_capabilities,
+        )
+
+    tracer = get_tracer()
+    final_payload: Dict[str, Any] = {}
+    all_specialist_payloads: Dict[str, Any] = dict(checkpoint.payloads)
+
+    # Seed prev_finish_payload from last completed specialist
+    prev_finish_payload: Optional[Dict[str, Any]] = None
+    if checkpoint.completed_specialists:
+        last_completed = checkpoint.completed_specialists[-1]
+        prev_finish_payload = checkpoint.payloads.get(last_completed)
+
+    is_task_force = len(specialist_ids) > 1
+
+    with tracer.start_as_current_span("concierge.resume_execute_task") as root_span:
+        root_span.set_attribute("run_id", run_id)
+        root_span.set_attribute("remaining_specialists", ",".join(remaining_specialists))
+
+        for pack_idx, specialist_id in enumerate(specialist_ids):
+            if specialist_id in checkpoint.completed_specialists:
+                # Skip already-completed specialists
+                prev_finish_payload = checkpoint.payloads.get(specialist_id, prev_finish_payload)
+                continue
+
+            pack = specialist_registry.get_pack(specialist_id, checkpoint.workspace_path, True)
+
+            if is_task_force:
+                pack_start_ev = {
+                    "specialist_id": specialist_id,
+                    "pack_index": pack_idx,
+                    "resumed": True,
+                }
+                run_repository.append_event(run_id_obj, "pack_start", pack_start_ev, step=None)
+                _emit(event_queue, "pack_start", pack_start_ev)
+
+            # Build messages
+            if prev_finish_payload is None:
+                user_content = f"Task:\n{checkpoint.task_prompt}"
+            else:
+                prev_idx = pack_idx - 1
+                prev_sid = specialist_ids[prev_idx] if prev_idx >= 0 else "previous"
+                context_block = json.dumps(prev_finish_payload, indent=2, ensure_ascii=False)
+                user_content = (
+                    f"Task:\n{checkpoint.task_prompt}\n\n"
+                    f"Context from '{prev_sid}' specialist "
+                    f"(prior task-force member):\n{context_block}"
+                )
+
+            brief_text = _get_brief(plan, specialist_id)
+            if brief_text:
+                user_content += f"\n\nYour specific assignment:\n{brief_text}"
+
+            messages: List[Dict[str, Any]] = [
+                {"role": "system", "content": pack.system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+
+            step_prefix = f"{specialist_id}_" if is_task_force else ""
+
+            pack_payload = await _execute_pack_loop(
+                pack=pack,
+                messages=messages,
+                model_cfg=model_cfg,
+                chat_client=chat_client,
+                run_repository=run_repository,
+                run_id=run_id_obj,
+                step_prefix=step_prefix,
+                max_steps=max_steps,
+                tracer=tracer,
+                specialist_id=specialist_id,
+                event_queue=event_queue,
+            )
+
+            all_specialist_payloads[specialist_id] = pack_payload
+            prev_finish_payload = pack_payload
+            final_payload = pack_payload
+
+            # Update checkpoint
+            try:
+                import time
+                checkpoint.completed_specialists = checkpoint.completed_specialists + [specialist_id]
+                checkpoint.payloads = dict(all_specialist_payloads)
+                checkpoint.updated_at = time.time()
+                save_checkpoint(run_dir, checkpoint)
+            except Exception as exc:
+                logger.warning("Failed to update checkpoint after specialist %s: %s", specialist_id, exc)
+
+    # Synthesis step
+    if plan is not None and plan.synthesis_required and len(all_specialist_payloads) > 1:
+        try:
+            final_payload = await _synthesise_results(
+                original_prompt=checkpoint.task_prompt,
+                specialist_payloads=all_specialist_payloads,
+                chat_client=chat_client,
+                model_cfg=model_cfg,
+                run_repository=run_repository,
+                run_id=run_id_obj,
+                event_queue=event_queue,
+            )
+        except Exception as exc:
+            logger.warning("Synthesis failed during resume (%s); using last specialist result", exc)
+
+    # Emit run_complete
+    _run_complete_ev = {
+        "run_id": run_id,
+        "specialist_ids": specialist_ids,
+        "task_force_mode": checkpoint.task_force_mode,
+        "resumed": True,
+    }
+    run_repository.append_event(run_id_obj, "run_complete", _run_complete_ev, step=None)
+    _emit(event_queue, "run_complete", _run_complete_ev)
+
+    # Delete checkpoint
+    try:
+        delete_checkpoint(run_dir)
+    except Exception as exc:
+        logger.warning("Failed to delete checkpoint after resume: %s", exc)
+
+    result = RunResult(
+        run_id=run_id_obj,
+        run_dir=checkpoint.run_dir,
+        workspace_path=checkpoint.workspace_path,
+        specialist_id=specialist_ids[0],
+        model_name=model_cfg.model,
+        payload=final_payload,
+        required_capabilities=checkpoint.required_capabilities,
+        specialist_ids=specialist_ids,
+    )
+
+    _emit(event_queue, "_run_done_", {"run_id": result.run_id.value, "ok": True})
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint helpers (non-fatal; failure logs a warning)
+# ---------------------------------------------------------------------------
+
+def _create_initial_checkpoint(
+    *,
+    run_id: str,
+    run_dir: str,
+    workspace_path: str,
+    task: Any,
+    specialist_ids: List[str],
+    task_force_mode: str,
+    model_cfg: ModelConfig,
+    routing_method: str,
+    required_capabilities: List[str],
+    plan: Optional[OrchestrationPlan],
+) -> Optional[Any]:
+    """Create and save the initial checkpoint. Returns the checkpoint object or None on error."""
+    try:
+        import time
+        from agentic_concierge.infrastructure.workspace.run_checkpoint import (
+            RunCheckpoint,
+            save_checkpoint,
+        )
+
+        orch_plan_dict = None
+        if plan is not None and plan.routing_method == "orchestrator":
+            orch_plan_dict = {
+                "assignments": [
+                    {"specialist_id": b.specialist_id, "brief": b.brief}
+                    for b in plan.specialist_assignments
+                ],
+                "mode": plan.mode,
+                "synthesis_required": plan.synthesis_required,
+                "reasoning": plan.reasoning,
+            }
+
+        checkpoint = RunCheckpoint(
+            run_id=run_id,
+            run_dir=run_dir,
+            workspace_path=workspace_path,
+            task_prompt=task.prompt,
+            specialist_ids=specialist_ids,
+            completed_specialists=[],
+            payloads={},
+            task_force_mode=task_force_mode,
+            model_key=task.model_key,
+            routing_method=routing_method,
+            required_capabilities=required_capabilities,
+            orchestration_plan=orch_plan_dict,
+            created_at=time.time(),
+            updated_at=time.time(),
+        )
+        save_checkpoint(run_dir, checkpoint)
+        return checkpoint
+    except Exception as exc:
+        logger.warning("Failed to create initial checkpoint: %s", exc)
+        return None
+
+
+def _update_checkpoint(
+    checkpoint: Optional[Any],
+    run_dir: str,
+    *,
+    completed: List[str],
+    payloads: Dict[str, Any],
+) -> None:
+    """Update the checkpoint's completed_specialists and payloads (non-fatal)."""
+    if checkpoint is None:
+        return
+    try:
+        import time
+        from agentic_concierge.infrastructure.workspace.run_checkpoint import save_checkpoint
+
+        checkpoint.completed_specialists = list(completed)
+        checkpoint.payloads = dict(payloads)
+        checkpoint.updated_at = time.time()
+        save_checkpoint(run_dir, checkpoint)
+    except Exception as exc:
+        logger.warning("Failed to update checkpoint: %s", exc)
+
+
+def _delete_run_checkpoint(run_dir: str) -> None:
+    """Delete the run checkpoint (non-fatal)."""
+    try:
+        from agentic_concierge.infrastructure.workspace.run_checkpoint import delete_checkpoint
+        delete_checkpoint(run_dir)
+    except Exception as exc:
+        logger.warning("Failed to delete checkpoint: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Synthesis
+# ---------------------------------------------------------------------------
+
+_SYNTHESISE_TOOL_DEF: Dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "synthesise_results",
+        "description": (
+            "Synthesise the outputs from multiple specialist agents into a coherent "
+            "final answer. Call this tool once with the combined result."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": "Coherent overall summary combining all specialist outputs.",
+                },
+                "key_findings": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Key findings from all specialists.",
+                },
+                "artifacts": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Paths to artefacts produced by specialists.",
+                },
+                "next_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Recommended next steps.",
+                },
+            },
+            "required": ["summary", "key_findings"],
+        },
+    },
+}
+
+
+async def _synthesise_results(
+    *,
+    original_prompt: str,
+    specialist_payloads: Dict[str, Any],
+    chat_client: ChatClient,
+    model_cfg: ModelConfig,
+    run_repository: RunRepository,
+    run_id: RunId,
+    event_queue: Optional[asyncio.Queue],
+) -> Dict[str, Any]:
+    """Make one LLM call to synthesise multi-specialist outputs.
+
+    Returns the synthesis payload dict, or raises on LLM failure (caller catches).
+    """
+    payload_lines = "\n\n".join(
+        f"**{sid}**:\n{json.dumps(payload, indent=2, ensure_ascii=False)}"
+        for sid, payload in specialist_payloads.items()
+        if not isinstance(payload, BaseException)
+    )
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a synthesis agent. Combine the outputs of multiple specialist agents "
+                "into a coherent, concise final answer for the original task."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Original task:\n{original_prompt}\n\n"
+                f"Specialist outputs:\n{payload_lines}\n\n"
+                "Call synthesise_results with a coherent synthesis."
+            ),
+        },
+    ]
+
+    _synth_req_ev = {"step": "synthesis", "message_count": len(messages)}
+    run_repository.append_event(run_id, "llm_request", _synth_req_ev, step="synthesis")
+    _emit(event_queue, "llm_request", _synth_req_ev, step="synthesis")
+
+    response = await chat_client.chat(
+        messages=messages,
+        model=model_cfg.model,
+        tools=[_SYNTHESISE_TOOL_DEF],
+        temperature=0.0,
+        max_tokens=model_cfg.max_tokens,
+    )
+
+    if response.tool_calls:
+        tc = response.tool_calls[0]
+        if tc.tool_name == "synthesise_results":
+            payload = {"action": "final", **tc.arguments}
+            _synth_ev = {"step": "synthesis", "result": "tool_call"}
+            run_repository.append_event(run_id, "synthesis_complete", _synth_ev, step="synthesis")
+            _emit(event_queue, "synthesis_complete", _synth_ev, step="synthesis")
+            return payload
+
+    # Fallback: use text content as summary
+    logger.warning("Synthesis LLM call returned no tool call; using text response as summary")
+    return {
+        "action": "final",
+        "summary": response.content or "Synthesis produced no output.",
+        "key_findings": [],
+        "artifacts": [],
+        "next_steps": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +853,7 @@ def _run_dir_to_workspace_root(run_dir: str) -> str:
 async def _run_task_force_parallel(
     *,
     specialist_ids: List[str],
-    task: Any,  # Task domain object
+    task: Any,
     workspace_path: str,
     model_cfg: ModelConfig,
     chat_client: ChatClient,
@@ -364,22 +862,25 @@ async def _run_task_force_parallel(
     max_steps: int,
     tracer: Any,
     event_queue: Optional[asyncio.Queue],
-    specialist_registry: Any,  # SpecialistRegistry protocol
+    specialist_registry: Any,
+    plan: Optional[OrchestrationPlan] = None,
 ) -> Dict[str, Any]:
-    """Run all specialist packs concurrently and merge their payloads.
+    """Run all specialist packs concurrently and merge their payloads."""
 
-    Each pack receives the original task prompt with no inter-pack context
-    forwarding. Pack errors are captured and included in the merged result
-    so one failing pack does not abort the whole task force.
-    """
     async def _run_one(specialist_id: str, pack_idx: int) -> Dict[str, Any]:
         pack = specialist_registry.get_pack(specialist_id, workspace_path, task.network_allowed)
         pack_start_ev = {"specialist_id": specialist_id, "pack_index": pack_idx}
         run_repository.append_event(run_id, "pack_start", pack_start_ev, step=None)
         _emit(event_queue, "pack_start", pack_start_ev)
+
+        user_content = f"Task:\n{task.prompt}"
+        brief_text = _get_brief(plan, specialist_id)
+        if brief_text:
+            user_content += f"\n\nYour specific assignment:\n{brief_text}"
+
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": pack.system_prompt},
-            {"role": "user", "content": f"Task:\n{task.prompt}"},
+            {"role": "user", "content": user_content},
         ]
         step_prefix = f"{specialist_id}_"
         return await _execute_pack_loop(
@@ -407,13 +908,7 @@ def _merge_parallel_payloads(
     payloads: List[Any],
     specialist_ids: List[str],
 ) -> Dict[str, Any]:
-    """Merge parallel pack payloads into a single combined result dict.
-
-    Returns a dict with:
-    - ``pack_results``: mapping from specialist_id → individual payload (or error dict)
-    - ``summary``: concatenated per-pack summaries joined with `` | ``
-    - ``action``, ``artifacts``, ``next_steps``: standard finish_task fields
-    """
+    """Merge parallel pack payloads into a single combined result dict."""
     pack_results: Dict[str, Any] = {}
     summaries: List[str] = []
 
@@ -446,7 +941,7 @@ def _merge_parallel_payloads(
 
 async def _execute_pack_loop(
     *,
-    pack: Any,  # SpecialistPack protocol
+    pack: Any,
     messages: List[Dict[str, Any]],
     model_cfg: ModelConfig,
     chat_client: ChatClient,
@@ -471,18 +966,9 @@ async def _execute_pack_loop(
         tracer = _NOOP_TRACER
 
     payload: Dict[str, Any] = {}
-    # Tracks whether any non-finish tool has been attempted in this pack loop.
-    # finish_task is rejected until this is True so the LLM cannot claim
-    # completion without having done any actual work.
     any_non_finish_tool_called = False
-    # Counts consecutive LLM responses with no tool calls.  On each hit below
-    # the retry limit we inject a corrective re-prompt; beyond the limit we
-    # accept the plain text as the final payload (graceful degradation).
     consecutive_plain_text = 0
 
-    # aopen() is INSIDE the try block so that aclose() runs even if aopen()
-    # fails partway (e.g. MCPAugmentedPack partially connects before one
-    # session raises — the finally block safely no-ops already-closed sessions).
     try:
         await pack.aopen()
         for step in range(max_steps):
@@ -507,8 +993,7 @@ async def _execute_pack_loop(
                 )
                 llm_span.set_attribute("tool_calls_returned", len(response.tool_calls))
 
-            # Drain pending cloud_fallback events from FallbackChatClient (if used).
-            # FallbackChatClient.pop_events() returns [] for plain ChatClient instances.
+            # Drain pending cloud_fallback events
             if hasattr(chat_client, "pop_events"):
                 for fb_event in chat_client.pop_events():
                     run_repository.append_event(
@@ -534,13 +1019,7 @@ async def _execute_pack_loop(
             if not response.has_tool_calls:
                 consecutive_plain_text += 1
                 if consecutive_plain_text <= _MAX_PLAIN_TEXT_RETRIES:
-                    # Inject a corrective re-prompt so the LLM knows it must call
-                    # a tool.  This recovers from the common failure mode where the
-                    # model narrates what it would do instead of doing it, especially
-                    # after receiving a tool error (e.g. sandbox path violation).
-                    tool_names = [
-                        t["function"]["name"] for t in pack.tool_definitions
-                    ]
+                    tool_names = [t["function"]["name"] for t in pack.tool_definitions]
                     correction = (
                         "You must call one of the available tools to continue — "
                         "do not respond with plain text.\n"
@@ -563,9 +1042,8 @@ async def _execute_pack_loop(
                         run_id, "corrective_reprompt", _reprompt_ev, step=step_key,
                     )
                     _emit(event_queue, "corrective_reprompt", _reprompt_ev, step=step_key)
-                    continue  # retry — LLM sees the correction
+                    continue
 
-                # Exceeded retry limit — accept text as degraded final payload.
                 logger.warning(
                     "Step %s: LLM returned plain text %d time(s); using as final payload",
                     step_key, consecutive_plain_text,
@@ -582,10 +1060,8 @@ async def _execute_pack_loop(
                 }
                 break
 
-            # LLM returned tool calls — reset the plain-text retry counter.
             consecutive_plain_text = 0
 
-            # Build the assistant turn with tool_calls for the conversation history.
             messages.append(
                 _make_assistant_tool_turn(response.content, response.tool_calls)
             )
@@ -598,11 +1074,7 @@ async def _execute_pack_loop(
                 _emit(event_queue, "tool_call", _tc_ev, step=step_key)
 
                 if tc.tool_name == pack.finish_tool_name:
-                    # Structural quality gate: the LLM must attempt at least one
-                    # non-finish tool before finish_task is accepted.  This prevents
-                    # lazy completions where the model claims success without doing
-                    # any work.  Tool failures count — if all tools fail the LLM can
-                    # still call finish_task to report it, as long as it tried.
+                    # Gate 1: LLM must attempt at least one non-finish tool first.
                     if not any_non_finish_tool_called:
                         logger.warning(
                             "Step %s: finish_task called before any tool was used; "
@@ -627,11 +1099,9 @@ async def _execute_pack_loop(
                         _no_work_ev = {"tool": tc.tool_name, "result": error_result}
                         run_repository.append_event(run_id, "tool_result", _no_work_ev, step=step_key)
                         _emit(event_queue, "tool_result", _no_work_ev, step=step_key)
-                        continue  # Do NOT set finish_payload; LLM must do work first.
+                        continue
 
-                    # Validate required fields before accepting as the final payload.
-                    # If any are missing, send the error back to the LLM as a tool
-                    # result so it can retry with complete arguments.
+                    # Gate 2: Required fields must all be present.
                     missing = [
                         f for f in pack.finish_required_fields if f not in tc.arguments
                     ]
@@ -652,7 +1122,29 @@ async def _execute_pack_loop(
                         _missing_fields_ev = {"tool": tc.tool_name, "result": error_result}
                         run_repository.append_event(run_id, "tool_result", _missing_fields_ev, step=step_key)
                         _emit(event_queue, "tool_result", _missing_fields_ev, step=step_key)
-                        continue  # Do NOT set finish_payload; LLM must retry.
+                        continue
+
+                    # Gate 3: Pack-defined quality gate (e.g. tests_verified check).
+                    # Use hasattr so custom _Pack stubs in tests don't need the method,
+                    # and isinstance(str) so MagicMock returns don't trigger the gate.
+                    _vfp = getattr(pack, "validate_finish_payload", None)
+                    quality_error = _vfp(tc.arguments) if _vfp is not None else None
+                    if isinstance(quality_error, str) and quality_error:
+                        logger.warning(
+                            "Step %s: quality gate failed: %s", step_key, quality_error
+                        )
+                        error_result = {
+                            "error": "quality_gate_failed",
+                            "message": quality_error,
+                            "hint": "Call run_tests, fix issues, then retry finish_task.",
+                        }
+                        messages.append(
+                            _make_tool_result(tc.call_id, json.dumps(error_result))
+                        )
+                        _qg_ev = {"tool": tc.tool_name, "message": quality_error}
+                        run_repository.append_event(run_id, "quality_gate_failed", _qg_ev, step=step_key)
+                        _emit(event_queue, "quality_gate_failed", _qg_ev, step=step_key)
+                        continue
 
                     finish_payload = {"action": "final", **tc.arguments}
                     messages.append(_make_tool_result(tc.call_id, _FINISH_TOOL_RESULT_CONTENT))
@@ -662,7 +1154,6 @@ async def _execute_pack_loop(
                     continue
 
                 # Mark that the LLM has attempted at least one non-finish tool.
-                # Set before execution so that tool failures still count.
                 any_non_finish_tool_called = True
                 error_type: Optional[str] = None
                 error_message: str = ""
@@ -672,21 +1163,15 @@ async def _execute_pack_loop(
                     try:
                         result = await pack.execute_tool(tc.tool_name, tc.arguments)
                     except PermissionError as exc:
-                        # Sandbox violation: path escape or disallowed command.
                         result = {"error": "permission_denied", "message": str(exc)}
                         error_type, error_message = "permission", str(exc)
                     except (ValueError, TypeError) as exc:
-                        # Bad arguments supplied by the LLM to the tool.
                         result = {"error": "invalid_arguments", "message": str(exc)}
                         error_type, error_message = "invalid_args", str(exc)
                     except OSError as exc:
-                        # Filesystem or subprocess I/O error.
                         result = {"error": "io_error", "message": str(exc)}
                         error_type, error_message = "io_error", str(exc)
                     except Exception as exc:  # noqa: BLE001
-                        # Unexpected error — catch-all so one bad tool never kills the run.
-                        # KeyboardInterrupt / SystemExit are BaseException, not Exception,
-                        # so they propagate normally.
                         result = {
                             "error": "unexpected_error",
                             "message": str(exc),
@@ -707,8 +1192,6 @@ async def _execute_pack_loop(
                     run_repository.append_event(run_id, "tool_error", _terr_ev, step=step_key)
                     _emit(event_queue, "tool_error", _terr_ev, step=step_key)
                     if error_type == "permission":
-                        # Sandbox violation — write a dedicated security_event so the
-                        # audit trail is distinct from ordinary tool errors.
                         logger.warning(
                             "Security event: sandbox violation by tool %r: %s",
                             tc.tool_name, error_message,
@@ -735,7 +1218,6 @@ async def _execute_pack_loop(
                 break
 
         else:
-            # for-else: loop completed without breaking → max_steps reached.
             logger.warning(
                 "max_steps (%d) reached without finish_task: run_id=%s step_prefix=%r",
                 max_steps, run_id.value, step_prefix,
@@ -756,6 +1238,12 @@ async def _execute_pack_loop(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _run_dir_to_workspace_root(run_dir: str) -> str:
+    """Derive workspace_root from run_dir (``{root}/runs/{run_id}`` → ``{root}``)."""
+    from pathlib import Path
+    return str(Path(run_dir).parent.parent)
+
 
 def _make_assistant_tool_turn(
     content: Optional[str],

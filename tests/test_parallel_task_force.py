@@ -265,13 +265,27 @@ async def test_parallel_task_force_runs_both_packs():
     registry = MagicMock()
     registry.get_pack.side_effect = _get_pack
 
-    with patch("agentic_concierge.application.execute_task.llm_recruit_specialist") as mock_recruit:
-        from agentic_concierge.application.recruit import RecruitmentResult
-        mock_recruit.return_value = RecruitmentResult(
-            specialist_ids=["engineering", "research"],
-            required_capabilities=["code_execution", "systematic_review"],
-            routing_method="llm",
-        )
+    # Phase 12: execute_task now calls orchestrate_task (not llm_recruit_specialist directly).
+    with patch("agentic_concierge.application.execute_task.orchestrate_task") as mock_orch:
+        from agentic_concierge.application.orchestrator import OrchestrationPlan, SpecialistBrief
+        import asyncio as _asyncio
+
+        async def _mock_orchestrate(*args, **kwargs):
+            return OrchestrationPlan(
+                specialist_assignments=[
+                    SpecialistBrief("engineering", ""),
+                    SpecialistBrief("research", ""),
+                ],
+                mode="parallel",
+                # synthesis_required=False so _merge_parallel_payloads result is preserved
+                # (this test checks that pack_results contains both packs' outputs)
+                synthesis_required=False,
+                reasoning="test",
+                routing_method="orchestrator",
+                required_capabilities=["code_execution", "systematic_review"],
+            )
+
+        mock_orch.side_effect = _mock_orchestrate
 
         result = await execute_task(
             task,

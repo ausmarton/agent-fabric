@@ -28,7 +28,7 @@ from agentic_concierge.infrastructure.workspace import FileSystemRunRepository
 
 def _finish_response(call_id: str = "c1", **kwargs) -> LLMResponse:
     """LLMResponse that calls finish_task with the given arguments."""
-    defaults = {"summary": "Done", "artifacts": [], "next_steps": [], "notes": ""}
+    defaults = {"summary": "Done", "artifacts": [], "next_steps": [], "notes": "", "tests_verified": True}
     defaults.update(kwargs)
     return LLMResponse(
         content=None,
@@ -539,7 +539,7 @@ async def test_finish_task_coexisting_with_regular_tool_in_same_response(tmp_pat
             ToolCallRequest(
                 call_id="c2",
                 tool_name="finish_task",
-                arguments={"summary": "Done", "artifacts": [], "next_steps": [], "notes": ""},
+                arguments={"summary": "Done", "artifacts": [], "next_steps": [], "notes": "", "tests_verified": True},
             ),
         ],
     )
@@ -628,3 +628,183 @@ async def test_non_permission_errors_produce_no_security_event(tmp_path):
         assert not any(e["kind"] == "security_event" for e in events), (
             f"security_event must not be emitted for {type(exc).__name__}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 additions: brief injection, synthesis, checkpoint
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_orchestrator_brief_injected_into_specialist_messages(tmp_path):
+    """When orchestrate_task returns a brief, it appears in the first user message sent to the specialist LLM.
+
+    We verify this by checking the runlog llm_request event's message content.
+    """
+    from agentic_concierge.application.orchestrator import OrchestrationPlan, SpecialistBrief
+
+    config = load_config()
+    run_repository = FileSystemRunRepository(workspace_root=str(tmp_path))
+    specialist_registry = ConfigSpecialistRegistry(config)
+
+    plan_with_brief = OrchestrationPlan(
+        specialist_assignments=[SpecialistBrief("engineering", "Implement auth using JWT")],
+        mode="sequential",
+        synthesis_required=False,
+        reasoning="test brief injection",
+        routing_method="orchestrator",
+        required_capabilities=["code_execution"],
+    )
+
+    captured_messages = []
+
+    async def mock_chat(messages, model, **kwargs):
+        captured_messages.append(list(messages))
+        # First call: tool, second: finish
+        if len(captured_messages) == 1:
+            return LLMResponse(
+                content=None,
+                tool_calls=[ToolCallRequest(call_id="t0", tool_name="list_files", arguments={})],
+            )
+        return _finish_response()
+
+    with patch(
+        "agentic_concierge.application.execute_task.orchestrate_task",
+        new_callable=AsyncMock,
+        return_value=plan_with_brief,
+    ), patch.object(OllamaChatClient, "chat", side_effect=mock_chat):
+        chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
+        task = Task(prompt="build auth", specialist_id=None, network_allowed=False)
+        await execute_task(
+            task,
+            chat_client=chat_client,
+            run_repository=run_repository,
+            specialist_registry=specialist_registry,
+            config=config,
+            max_steps=10,
+        )
+
+    # The first chat call's user message should contain the brief
+    assert len(captured_messages) >= 1
+    first_user_msg = next(
+        (m["content"] for m in captured_messages[0] if m["role"] == "user"), ""
+    )
+    assert "Implement auth using JWT" in first_user_msg, (
+        f"Brief not found in user message: {first_user_msg!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_written_and_deleted_on_completion(tmp_path):
+    """execute_task writes a checkpoint and deletes it on successful completion."""
+    from pathlib import Path as _Path
+
+    config = load_config()
+    run_repository = FileSystemRunRepository(workspace_root=str(tmp_path))
+    specialist_registry = ConfigSpecialistRegistry(config)
+
+    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock,
+                      side_effect=[
+                          _tool_response("list_files"),
+                          _finish_response(),
+                      ]):
+        chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
+        task = Task(prompt="test checkpoint", specialist_id="engineering", network_allowed=False)
+        result = await execute_task(
+            task,
+            chat_client=chat_client,
+            run_repository=run_repository,
+            specialist_registry=specialist_registry,
+            config=config,
+            max_steps=10,
+        )
+
+    # After successful completion, checkpoint.json must NOT exist
+    assert not (_Path(result.run_dir) / "checkpoint.json").exists(), (
+        "checkpoint.json should be deleted after run_complete"
+    )
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_rejects_false_tests_verified(tmp_path):
+    """Quality gate in _execute_pack_loop rejects tests_verified=False and logs quality_gate_failed."""
+    config = load_config()
+    run_repository = FileSystemRunRepository(workspace_root=str(tmp_path))
+    specialist_registry = ConfigSpecialistRegistry(config)
+
+    # First response: finish_task with tests_verified=False → quality gate fires
+    # Second: tool call → satisfies "prior work done" check
+    # Third: finish_task with tests_verified=True → accepted
+    responses = [
+        _finish_response(tests_verified=False),   # gate 1 fires (no prior tool) → error
+        _tool_response("list_files"),              # satisfies gate 1
+        _finish_response(tests_verified=False),   # gate 3 fires → quality gate error
+        _tool_response("list_files", call_id="t2"),
+        _finish_response(tests_verified=True),    # accepted
+    ]
+
+    with patch.object(OllamaChatClient, "chat", new_callable=AsyncMock, side_effect=responses):
+        chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
+        task = Task(prompt="build", specialist_id="engineering", network_allowed=False)
+        result = await execute_task(
+            task,
+            chat_client=chat_client,
+            run_repository=run_repository,
+            specialist_registry=specialist_registry,
+            config=config,
+            max_steps=20,
+        )
+
+    events = _read_runlog(result.run_dir)
+    quality_gate_events = [e for e in events if e["kind"] == "quality_gate_failed"]
+    assert len(quality_gate_events) >= 1, "Expected at least one quality_gate_failed event"
+
+
+@pytest.mark.asyncio
+async def test_synthesis_skipped_for_single_specialist(tmp_path):
+    """Synthesis step is not attempted when there is only one specialist (synthesis_required=False)."""
+    from agentic_concierge.application.orchestrator import OrchestrationPlan, SpecialistBrief
+
+    config = load_config()
+    run_repository = FileSystemRunRepository(workspace_root=str(tmp_path))
+    specialist_registry = ConfigSpecialistRegistry(config)
+
+    plan_no_synthesis = OrchestrationPlan(
+        specialist_assignments=[SpecialistBrief("engineering", "")],
+        mode="sequential",
+        synthesis_required=False,  # single specialist → no synthesis
+        reasoning="",
+        routing_method="orchestrator",
+        required_capabilities=[],
+    )
+
+    call_count = {"n": 0}
+
+    async def mock_chat(messages, model, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return LLMResponse(
+                content=None,
+                tool_calls=[ToolCallRequest(call_id="t0", tool_name="list_files", arguments={})],
+            )
+        return _finish_response()
+
+    with patch(
+        "agentic_concierge.application.execute_task.orchestrate_task",
+        new_callable=AsyncMock,
+        return_value=plan_no_synthesis,
+    ), patch.object(OllamaChatClient, "chat", side_effect=mock_chat):
+        chat_client = OllamaChatClient(base_url="http://localhost:11434/v1", timeout_s=5.0)
+        task = Task(prompt="build", specialist_id=None, network_allowed=False)
+        await execute_task(
+            task,
+            chat_client=chat_client,
+            run_repository=run_repository,
+            specialist_registry=specialist_registry,
+            config=config,
+            max_steps=10,
+        )
+
+    # Only 2 chat calls (list_files + finish_task); no synthesis call (which would be call_count=3)
+    assert call_count["n"] == 2, (
+        f"Expected 2 chat calls (no synthesis), got {call_count['n']}"
+    )

@@ -39,6 +39,24 @@ def _routing_response(caps: list[str] | None = None) -> LLMResponse:
     )
 
 
+def _create_plan_response(specialist_ids: list[str] | None = None, mode: str = "sequential") -> LLMResponse:
+    """Mock orchestrator create_plan response (Phase 12: orchestrate_task uses this)."""
+    sids = specialist_ids or ["engineering"]
+    return LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(
+            call_id="orch0",
+            tool_name="create_plan",
+            arguments={
+                "assignments": [{"specialist_id": sid, "brief": ""} for sid in sids],
+                "mode": mode,
+                "synthesis_required": len(sids) > 1,
+                "reasoning": "test routing",
+            },
+        )],
+    )
+
+
 def _tool_resp(call_id: str = "t0") -> LLMResponse:
     """A list_files call to satisfy the 'prior tool call' structural requirement."""
     return LLMResponse(
@@ -59,6 +77,7 @@ def _eng_finish(call_id: str = "c1") -> LLMResponse:
                 "artifacts": [],
                 "next_steps": [],
                 "notes": "",
+                "tests_verified": True,
             },
         )],
     )
@@ -126,9 +145,12 @@ async def _run_with_captured_models(
 async def test_routing_uses_fast_model_by_default(tmp_path):
     """DEFAULT_CONFIG routes via 'fast' model (qwen2.5:7b), runs task on 'quality' (qwen2.5:14b)."""
     # DEFAULT_CONFIG: routing_model_key="fast" → qwen2.5:7b; task model_key="quality" → qwen2.5:14b
+    # Phase 12: orchestrate_task is called first (routing model), then the pack loop (task model).
+    # _create_plan_response() satisfies the create_plan tool call so orchestrate_task succeeds
+    # without falling back to llm_recruit_specialist.
     result, call_models = await _run_with_captured_models(
         DEFAULT_CONFIG,
-        [_routing_response(), _tool_resp(), _eng_finish()],
+        [_create_plan_response(["engineering"]), _tool_resp(), _eng_finish()],
         "build a Python service",
         tmp_path,
     )
@@ -159,7 +181,7 @@ async def test_routing_uses_explicit_routing_model_key(tmp_path):
 
     result, call_models = await _run_with_captured_models(
         config,
-        [_routing_response(), _tool_resp(), _eng_finish()],
+        [_create_plan_response(["engineering"]), _tool_resp(), _eng_finish()],
         "build a Python service",
         tmp_path,
     )
@@ -185,9 +207,11 @@ async def test_routing_falls_back_to_task_model_when_key_missing(tmp_path):
         routing_model_key="nonexistent",
     )
 
+    # routing_model_key='nonexistent' → execute_task falls back to task model for orchestrate_task.
+    # _create_plan_response() satisfies the create_plan call so orchestrate_task succeeds.
     result, call_models = await _run_with_captured_models(
         config,
-        [_routing_response(), _tool_resp(), _eng_finish()],
+        [_create_plan_response(["engineering"]), _tool_resp(), _eng_finish()],
         "build a Python service",
         tmp_path,
     )

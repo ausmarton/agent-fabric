@@ -24,8 +24,8 @@ def test_engineering_pack_tools_unchanged_by_network_flag(network_allowed):
     when network_allowed=False)."""
     with tempfile.TemporaryDirectory() as d:
         pack = build_engineering_pack(d, network_allowed=network_allowed)
-        # All four tools plus finish_task must always be present.
-        assert set(pack.tool_names) == {"shell", "read_file", "write_file", "list_files"}
+        # All tools (including run_tests added in Phase 12) must always be present.
+        assert set(pack.tool_names) == {"shell", "read_file", "write_file", "list_files", "run_tests"}
 
 
 def test_research_pack_network_allowed_has_web_tools():

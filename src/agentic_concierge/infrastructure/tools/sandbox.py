@@ -16,7 +16,7 @@ from agentic_concierge.config.constants import MAX_TOOL_OUTPUT_CHARS, SHELL_DEFA
 class SandboxPolicy:
     root: Path
     allowed_commands: Tuple[str, ...] = (
-        "python", "python3", "pytest", "bash", "sh", "git", "rg", "ls", "cat", "sed", "awk", "jq", "pip", "uv", "make"
+        "python", "python3", "pytest", "bash", "sh", "git", "rg", "ls", "cat", "sed", "awk", "jq", "pip", "uv", "make", "cargo", "npm"
     )
     network_allowed: bool = True
     max_output_chars: int = MAX_TOOL_OUTPUT_CHARS

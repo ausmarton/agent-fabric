@@ -757,6 +757,38 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 
 ---
 
+## Phase 12 — Quality Gates, LLM Orchestrator, and Session Continuation
+
+**Status: COMPLETE — 2026-02-26 — 599 fast CI pass**
+
+### Phase 12A — Engineering Quality Gates (P12-1 to P12-4) — DONE
+
+**Deliverables:**
+- `infrastructure/tools/test_runner.py`: `run_tests()` — auto-detects pytest/cargo/npm; returns `{passed, failed_count, error_count, summary, output, framework}`. `pytest`, `cargo`, `npm` added to sandbox allowlist.
+- Engineering pack: `run_tests` tool registered; `tests_verified: bool` added to `_FINISH_TOOL_DEF` required fields; `EngineeringSpecialistPack.validate_finish_payload()` rejects `tests_verified=False`.
+- `BaseSpecialistPack.validate_finish_payload()` no-op default added; `execute_task._execute_pack_loop` calls it as Gate 3 (after required-fields Gate 2).
+- `SYSTEM_PROMPT_ENGINEERING` updated with quality gate instructions.
+- **New test files:** `tests/test_run_tests_tool.py` (15 tests), `tests/test_engineering_pack_quality.py` (5 tests).
+
+### Phase 12B — LLM Orchestrator (P12-5 to P12-10) — DONE
+
+**Deliverables:**
+- `application/orchestrator.py`: `SpecialistBrief`, `OrchestrationPlan` dataclasses; `orchestrate_task()` makes one LLM call with `create_plan` tool; filters unknown IDs; forces `synthesis_required=True` for multi-specialist; falls back to `llm_recruit_specialist` on any error.
+- `execute_task.py`: Replaced `llm_recruit_specialist` with `orchestrate_task`; `_get_brief()` helper; brief injected into specialist user messages; `orchestration_plan` runlog event emitted; `_synthesise_results()` async function called when `synthesis_required=True`; `plan.mode` overrides `task_force_mode` for multi-specialist runs.
+- `interfaces/cli.py`: `concierge plan "<prompt>"` command — calls `orchestrate_task`, prints Rich panel with mode/synthesis/assignments.
+- **New test file:** `tests/test_orchestrate_task.py` (20 tests); `+4` to `tests/test_execute_task.py`.
+
+### Phase 12C — Session Continuation (P12-11 to P12-13) — DONE
+
+**Deliverables:**
+- `infrastructure/workspace/run_checkpoint.py`: `RunCheckpoint` dataclass; `save_checkpoint()` (atomic write via tmp+rename); `load_checkpoint()` (returns None on missing/corrupt); `delete_checkpoint()`; `find_resumable_runs()`.
+- `infrastructure/workspace/__init__.py`: checkpoint functions exported.
+- `execute_task.py`: `_create_initial_checkpoint()`, `_update_checkpoint()`, `_delete_run_checkpoint()` helpers wired into `execute_task()`; `resume_execute_task()` function that skips completed specialists and seeds `prev_finish_payload` from checkpoint.
+- `interfaces/cli.py`: `concierge resume <run-id>` command; `(resumable)` marker in `concierge logs list`.
+- **New test files:** `tests/test_run_checkpoint.py` (16 tests), `tests/test_resume.py` (8 tests).
+
+---
+
 ## Phase 10 — Self-sizing bootstrap, three-layer inference, profile-based features
 
 **Status: COMPLETE — 2026-02-26 — 495 fast CI pass**

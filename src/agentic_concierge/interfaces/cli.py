@@ -276,6 +276,9 @@ def logs_list(
         rprint(f"[dim]No runs found in {workspace}/runs/[/dim]")
         return
 
+    from agentic_concierge.infrastructure.workspace.run_checkpoint import find_resumable_runs
+    resumable_ids = set(find_resumable_runs(workspace))
+
     from rich.table import Table
     table = Table(title=f"Recent runs ({workspace})", show_header=True, header_style="bold")
     table.add_column("Run ID", style="cyan", no_wrap=True)
@@ -292,7 +295,10 @@ def logs_list(
         )
         specialists = ", ".join(s.specialist_ids) if s.specialist_ids else (s.specialist_id or "—")
         summary = (s.payload_summary or "")[:80]
-        table.add_row(s.run_id, started, specialists, str(s.event_count), summary)
+        run_id_display = s.run_id
+        if s.run_id in resumable_ids:
+            run_id_display = f"{s.run_id} [dim](resumable)[/dim]"
+        table.add_row(run_id_display, started, specialists, str(s.event_count), summary)
 
     from rich.console import Console
     Console().print(table)
@@ -438,6 +444,141 @@ def doctor(
     extras_table.add_row("chromadb", chroma_status, chroma_hint)
 
     console.print(extras_table)
+
+
+@app.command("plan")
+def plan_cmd(
+    prompt: str = typer.Argument(..., help="Task prompt to plan."),
+    model_key: str = typer.Option("quality", help="Which model profile to use (quality|fast)."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging to stderr."),
+) -> None:
+    """Show the orchestration plan for a task (does not run it)."""
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+    from rich.console import Console
+    from rich.panel import Panel
+    from agentic_concierge.application.orchestrator import orchestrate_task
+
+    config = load_config()
+    try:
+        resolved = resolve_llm(config, model_key)
+    except RuntimeError as e:
+        rprint(f"[red]{e}[/red]")
+        sys.exit(1)
+
+    chat_client = build_chat_client(resolved.model_config)
+    routing_cfg = config.models.get(config.routing_model_key) or resolved.model_config
+
+    try:
+        plan = asyncio.run(
+            orchestrate_task(
+                prompt,
+                config,
+                chat_client=chat_client,
+                model=routing_cfg.model,
+            )
+        )
+    except Exception as e:
+        rprint(f"[red]Planning failed: {e}[/red]")
+        sys.exit(1)
+
+    console = Console()
+    synthesis_str = "yes" if plan.synthesis_required else "no"
+    assignments_lines = ""
+    for i, assignment in enumerate(plan.specialist_assignments, 1):
+        assignments_lines += f"\n  {i}. [bold]{assignment.specialist_id}[/bold]"
+        if assignment.brief:
+            assignments_lines += f"\n     {assignment.brief}"
+
+    console.print(Panel(
+        f"[bold]Mode:[/bold]      {plan.mode}\n"
+        f"[bold]Synthesis:[/bold] {synthesis_str}"
+        + assignments_lines,
+        title="[bold]Orchestration plan[/bold]",
+    ))
+
+
+@app.command("resume")
+def resume_cmd(
+    run_id_arg: str = typer.Argument(..., help="Run ID to resume.", metavar="RUN_ID"),
+    workspace: str = typer.Option(
+        ".concierge", "--workspace", "-w", help="Workspace root (default: .concierge)."
+    ),
+    model_key: str = typer.Option("quality", help="Model profile."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging."),
+) -> None:
+    """Resume an interrupted run from its checkpoint."""
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+    from pathlib import Path
+    from agentic_concierge.infrastructure.workspace.run_checkpoint import load_checkpoint
+    from agentic_concierge.application.execute_task import resume_execute_task
+
+    run_dir = str(Path(workspace) / "runs" / run_id_arg)
+    checkpoint = load_checkpoint(run_dir)
+
+    if checkpoint is None:
+        rprint(f"[red]No checkpoint found for run {run_id_arg!r} in {workspace}.[/red]")
+        sys.exit(1)
+
+    completed = checkpoint.completed_specialists
+    total = checkpoint.specialist_ids
+    remaining = [s for s in total if s not in completed]
+
+    if not remaining:
+        rprint(f"[yellow]Run {run_id_arg!r} is already complete (all specialists finished).[/yellow]")
+        sys.exit(0)
+
+    rprint(
+        f"[cyan]Resuming run {run_id_arg}[/cyan] — "
+        f"{len(completed)}/{len(total)} specialists complete, "
+        f"continuing from [bold]{remaining[0]}[/bold]..."
+    )
+
+    config = load_config()
+    setup_telemetry(config)
+    try:
+        resolved = resolve_llm(config, checkpoint.model_key)
+    except RuntimeError as e:
+        rprint(f"[red]{e}[/red]")
+        sys.exit(1)
+
+    chat_client = build_chat_client(resolved.model_config)
+    run_repository = FileSystemRunRepository(workspace_root=workspace)
+    specialist_registry = ConfigSpecialistRegistry(config)
+
+    try:
+        result = asyncio.run(
+            resume_execute_task(
+                run_id_arg,
+                workspace,
+                chat_client=chat_client,
+                run_repository=run_repository,
+                specialist_registry=specialist_registry,
+                config=config,
+                resolved_model_cfg=resolved.model_config,
+                max_steps=40,
+            )
+        )
+    except ValueError as e:
+        rprint(f"[red]{e}[/red]")
+        sys.exit(1)
+
+    rprint(
+        Panel.fit(
+            f"[bold]Pack:[/bold] {result.specialist_id}\n"
+            f"[bold]Run dir:[/bold] {result.run_dir}\n"
+            f"[bold]Workspace:[/bold] {result.workspace_path}\n"
+            f"[bold]Model:[/bold] {result.model_name}"
+        )
+    )
+    rprint(json.dumps(result.payload, indent=2, ensure_ascii=False))
 
 
 @app.command("bootstrap")

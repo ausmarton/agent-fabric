@@ -37,7 +37,7 @@ except ImportError:
 
 def _finish_task_response(**kwargs) -> LLMResponse:
     """Build a mock LLMResponse that calls finish_task with the given args."""
-    defaults = {"summary": "Done", "artifacts": [], "next_steps": [], "notes": ""}
+    defaults = {"summary": "Done", "artifacts": [], "next_steps": [], "notes": "", "tests_verified": True}
     defaults.update(kwargs)
     return LLMResponse(
         content=None,

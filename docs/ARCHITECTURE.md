@@ -28,9 +28,9 @@ from infrastructure or interfaces.
 ┌──────────────────▼──────────────────────────────────────────────────┐
 │  Application  (orchestration + ports)                               │
 │                                                                     │
-│   execute_task()  ·  _execute_pack_loop()                           │
+│   execute_task()  ·  _execute_pack_loop()  ·  resume_execute_task() │
 │   _run_task_force_parallel()  ·  _merge_parallel_payloads()         │
-│   recruit_specialist()  ·  llm_recruit_specialist()                 │
+│   orchestrate_task()  ·  recruit_specialist()  ·  llm_recruit_specialist() │
 │                                                                     │
 │   Ports (Protocol interfaces defined here):                         │
 │     ChatClient  ·  RunRepository                                    │
@@ -433,3 +433,91 @@ CONCIERGE_CONFIG_PATH (env var, optional JSON or YAML)
 Violations of this rule break testability: `execute_task` tests run with
 mocked ports and never touch a real LLM or filesystem because the application
 layer is kept clean.
+
+---
+
+## 8. Phase 12 additions (Quality Gates, Orchestrator, Session Continuation)
+
+### 8.1 Engineering Quality Gate (P12-1 to P12-4)
+
+```
+_execute_pack_loop()
+  ├── Gate 1: no prior tool call before finish_task → error to LLM
+  ├── Gate 2: required fields missing → error to LLM
+  └── Gate 3: pack.validate_finish_payload(args) → str or None
+              EngineeringSpecialistPack.validate_finish_payload():
+                if tests_verified is False → "run run_tests first" error
+              BaseSpecialistPack default: always None (no gate)
+
+run_tests(policy, framework, path, timeout_s) → dict
+  Auto-detects: Cargo.toml→cargo, package.json+test→npm, pytest.ini/pyproject/test_*.py→pytest
+  Runs via run_cmd() (sandbox allowlist applies)
+  Returns: {passed, failed_count, error_count, summary, output, framework}
+```
+
+### 8.2 LLM Orchestrator (P12-5 to P12-10)
+
+The orchestrator replaces the naive `llm_recruit_specialist` call at the top of `execute_task()`:
+
+```
+execute_task()
+  if task.specialist_id is None:
+    plan = await orchestrate_task(prompt, config, chat_client, model=routing_model)
+      ├── One LLM call with create_plan tool
+      ├── Parses: assignments (specialist_id + brief), mode, synthesis_required, reasoning
+      ├── Filters unknown specialist IDs
+      ├── Forces synthesis_required=True when len(assignments) > 1
+      └── Falls back to llm_recruit_specialist on any error (zero regression)
+    specialist_ids = [a.specialist_id for a in plan.specialist_assignments]
+    task_force_mode = plan.mode  # may override config.task_force_mode
+  else:
+    specialist_ids = [task.specialist_id]  # explicit, no orchestrator call
+
+  # Brief injection (per specialist):
+  brief_text = _get_brief(plan, specialist_id)  # "" if plan is None
+  if brief_text:
+    user_content += f"\n\nYour specific assignment:\n{brief_text}"
+
+  # After all specialists complete:
+  if plan.synthesis_required and len(all_payloads) > 1:
+    final_payload = await _synthesise_results(...)  # one LLM call with synthesise_results tool
+    # Exception → fallback to last specialist's payload (non-fatal)
+```
+
+**Runlog events added by orchestrator:**
+- `orchestration_plan` — emitted when `routing_method="orchestrator"` with assignments/mode/synthesis_required/reasoning
+
+**CLI command:** `concierge plan "<prompt>"` — calls `orchestrate_task`, prints Rich panel, no run directory created.
+
+### 8.3 Session Continuation (P12-11 to P12-13)
+
+```
+Checkpoint file: {run_dir}/checkpoint.json  (plain JSON, atomic write via .tmp + rename)
+
+RunCheckpoint fields:
+  run_id, run_dir, workspace_path, task_prompt
+  specialist_ids, completed_specialists, payloads
+  task_force_mode, model_key, routing_method, required_capabilities
+  orchestration_plan (serialized dict or None)
+  created_at, updated_at
+
+execute_task() lifecycle:
+  1. After create_run() + recruitment: _create_initial_checkpoint()
+  2. After each sequential specialist: _update_checkpoint(completed=..., payloads=...)
+  3. After run_complete event: _delete_run_checkpoint()
+
+resume_execute_task(run_id, workspace_root, ...)
+  ├── load_checkpoint() → ValueError if missing or all complete
+  ├── Reconstructs plan from checkpoint.orchestration_plan
+  ├── Loops specialists: skips completed, runs remaining
+  ├── Updates checkpoint after each specialist
+  ├── Emits run_complete and deletes checkpoint
+  └── Returns RunResult
+
+find_resumable_runs(workspace_root):
+  Scans */checkpoint.json; returns run_ids with no run_complete in runlog
+```
+
+**CLI commands added:**
+- `concierge resume <run-id>` — loads checkpoint, resumes run, streams events
+- `concierge logs list` — now shows `(resumable)` next to interrupted run IDs

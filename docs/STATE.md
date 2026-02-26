@@ -2,11 +2,11 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-26. Fast CI: **531 pass** (Phases 1–11 complete).
+**Last updated:** 2026-02-26. Fast CI: **599 pass** (Phases 1–12 complete).
 
 ---
 
-## Current phase: **Phase 11 complete**
+## Current phase: **Phase 12 complete**
 
 Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are all done.
 
@@ -176,13 +176,32 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 | P11-9 | Tests | Done | `test_browser_tool.py` (13), `test_run_index_chroma.py` (10); +4 test_config; +4 test_features; +2 test_doctor_cli; total **531 pass** |
 | P11-10 | `MCPAugmentedPack` aopen/aclose fix | Done | Now calls `inner.aopen()`/`inner.aclose()` so browser tools work when MCP-wrapped |
 
+## Phase 12 checklist — **complete**
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| P12-1 | `infrastructure/tools/test_runner.py` | Done | `run_tests()` — auto-detect pytest/cargo/npm; `_detect_framework`, `_parse_pytest_output`, `_parse_cargo_output`; sandbox allowlist extended |
+| P12-2 | `run_tests` tool in engineering pack | Done | Registered in `build_engineering_pack()`; always present regardless of `network_allowed` |
+| P12-3 | `tests_verified` + `validate_finish_payload` quality gate | Done | `tests_verified` in engineering finish required fields; `EngineeringSpecialistPack.validate_finish_payload()` rejects `False`; `BaseSpecialistPack` default no-op; Gate 3 in `_execute_pack_loop` |
+| P12-4 | Engineering system prompt quality gate instructions | Done | `SYSTEM_PROMPT_ENGINEERING` updated with quality gate section |
+| P12-5 | `application/orchestrator.py` | Done | `SpecialistBrief`, `OrchestrationPlan`; `orchestrate_task()` with `create_plan` tool; fallback to `llm_recruit_specialist` |
+| P12-6 | Brief injection in `execute_task.py` | Done | `_get_brief()` helper; brief appended to user message in both sequential and parallel paths |
+| P12-7 | Result synthesis step | Done | `_synthesise_results()` async function; called when `plan.synthesis_required=True` and >1 specialist |
+| P12-8 | `orchestration_plan` runlog event | Done | Emitted after recruitment when `routing_method=”orchestrator”` |
+| P12-9 | Orchestrator wired into `execute_task.py` | Done | `orchestrate_task` replaces `llm_recruit_specialist` call; `plan.mode` overrides `task_force_mode` |
+| P12-10 | `concierge plan` CLI command | Done | Calls `orchestrate_task`, prints Rich panel with mode/synthesis/assignments |
+| P12-11 | `infrastructure/workspace/run_checkpoint.py` | Done | `RunCheckpoint`; `save_checkpoint()` atomic; `load_checkpoint()`; `delete_checkpoint()`; `find_resumable_runs()` |
+| P12-12 | Checkpoint write/delete in `execute_task.py` | Done | `_create_initial_checkpoint()`, `_update_checkpoint()`, `_delete_run_checkpoint()`; `resume_execute_task()` |
+| P12-13 | `concierge resume` + `(resumable)` in `logs list` | Done | `resume_cmd` CLI command; resumable marker in `concierge logs list` |
+| P12-14 | Tests | Done | `test_run_tests_tool.py` (15), `test_engineering_pack_quality.py` (5), `test_orchestrate_task.py` (20), `test_run_checkpoint.py` (16), `test_resume.py` (8), +4 `test_execute_task.py`; total **599 pass** |
+
 ## Next steps (what to do when resuming)
 
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **531 pass** before touching code.
-3. Phase 11 is complete — see BACKLOG.md for Phase 12 planning or add new items.
+2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **599 pass** before touching code.
+3. Phase 12 is complete — see BACKLOG.md for Phase 13 planning or add new items.
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---
