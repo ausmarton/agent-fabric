@@ -250,3 +250,49 @@ def test_model_config_default_backend_is_ollama():
 def test_model_config_backend_persists():
     cfg = ModelConfig(base_url="https://api.openai.com/v1", model="gpt-4o", backend="generic")
     assert cfg.backend == "generic"
+
+
+# ---------------------------------------------------------------------------
+# P10-9: vllm and inprocess backends in build_chat_client factory
+# ---------------------------------------------------------------------------
+
+def test_build_chat_client_vllm_backend():
+    from agentic_concierge.infrastructure.chat.vllm import VLLMChatClient
+    cfg = ModelConfig(base_url="http://localhost:8000/v1", model="qwen2.5-7b", backend="vllm")
+    client = build_chat_client(cfg)
+    assert isinstance(client, VLLMChatClient)
+    assert client._base_url == "http://localhost:8000/v1"
+
+
+def test_build_chat_client_vllm_passes_api_key():
+    from agentic_concierge.infrastructure.chat.vllm import VLLMChatClient
+    cfg = ModelConfig(
+        base_url="http://localhost:8000/v1",
+        model="qwen2.5-7b",
+        api_key="tok-abc",
+        backend="vllm",
+    )
+    client = build_chat_client(cfg)
+    assert client._api_key == "tok-abc"
+
+
+def test_build_chat_client_inprocess_raises_when_mistralrs_absent():
+    from unittest.mock import patch
+    from agentic_concierge.config.features import FeatureDisabledError
+    cfg = ModelConfig(
+        base_url="",
+        model="/tmp/model.gguf",
+        backend="inprocess",
+    )
+    with patch("importlib.util.find_spec", return_value=None):
+        with pytest.raises(FeatureDisabledError):
+            build_chat_client(cfg)
+
+
+def test_build_chat_client_unknown_backend_error_mentions_new_backends():
+    cfg = ModelConfig(base_url="http://x/v1", model="m", backend="totally_unknown")
+    with pytest.raises(ValueError) as exc_info:
+        build_chat_client(cfg)
+    err = str(exc_info.value)
+    assert "vllm" in err
+    assert "inprocess" in err

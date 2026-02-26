@@ -754,3 +754,219 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 | Un-skip and fix `test_resolve_llm_filters_embedding_models` | 2026-02-24 | Wrong patch target fixed; test now passes |
 | 5 new tests (packs, prompt content) | 2026-02-24 | `finish_task` in definitions, OpenAI format validation, prompt content checks |
 | All 4 real-LLM E2E tests passing | 2026-02-24 | engineering, research, API POST, verify_working_real.py — all pass against Ollama 0.12.11 with llama3.1:8b |
+
+---
+
+## Phase 10 — Self-sizing bootstrap, three-layer inference, profile-based features
+
+**Status: COMPLETE — 2026-02-26 — 495 fast CI pass**
+**Spec:** See `docs/PLAN.md` Phase 10 section.
+**ADRs:** ADR-012 through ADR-016 in `docs/DECISIONS.md`.
+**Target fast CI:** ~473 pass (+71 new tests across 7 new test files).
+
+Items are listed in implementation order — earlier items are prerequisites for later ones.
+
+---
+
+### P10-1: `bootstrap/system_probe.py` — detect system resources
+
+**Why first:** Everything else (profile selection, feature flags, backend decisions) depends on knowing what the machine looks like. This is the foundation of the entire phase.
+
+**Deliverable:** `SystemProbe` dataclass + `probe_system()` function. Detects:
+- CPU: `os.cpu_count()`, `platform.machine()` → `cpu_arch` ("x86_64" / "aarch64" / "apple_silicon")
+- RAM: `psutil.virtual_memory()` → `ram_total_mb`, `ram_available_mb`
+- GPU: `subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])` for NVIDIA; `["rocm-smi", "--showmeminfo", "vram", "--json"]` for AMD; `platform.machine() == "arm64"` + Darwin check for Apple Silicon. Returns `list[GPUDevice]` (empty if none found).
+- Disk: `shutil.disk_usage(cache_path)` → `disk_free_mb`
+- Internet: `httpx.head("https://1.1.1.1", timeout=3.0)` → `internet_reachable: bool`
+- Ollama: `shutil.which("ollama")` → `ollama_installed`; `httpx.get("http://localhost:11434/api/tags", timeout=2)` → `ollama_reachable`
+- vLLM: `httpx.get(vllm_base_url + "/health", timeout=2)` → `vllm_reachable` (default `http://localhost:8000`)
+- mistral.rs: `importlib.util.find_spec("mistralrs") is not None` → `mistralrs_available`
+
+**Test file:** `tests/test_system_probe.py` — 15 tests. All external calls mocked. Cover: NVIDIA GPU parse, AMD GPU parse, Apple Silicon detection, no-GPU path, internet unreachable, Ollama not installed, Ollama reachable, vLLM reachable, mistralrs absent.
+
+---
+
+### P10-2: `bootstrap/model_advisor.py` — profile and model recommendations
+
+**Why second:** Depends on `SystemProbe`. Produces `SystemProfile` used by everything downstream.
+
+**Deliverable:** `ProfileTier` enum + `SystemProfile` dataclass + `advise_profile(probe: SystemProbe) -> SystemProfile`.
+
+Tier thresholds:
+- nano: ram < 8 GB (regardless of GPU)
+- small: 8–16 GB RAM, VRAM < 4 GB
+- medium: 16–32 GB RAM OR 4–12 GB VRAM
+- large: 32–64 GB RAM OR 12–24 GB VRAM
+- server: 64 GB+ RAM OR 24 GB+ VRAM OR multi-GPU (2+ devices)
+
+Max concurrent agents: `max(1, min(floor((available_ram_mb - max(2048, total_ram_mb * 0.15) - 512) / model_ctx_mb), cpu_cores - 1))`
+
+Model recommendations per tier (all support tool calling):
+
+| Tier | routing (in-process GGUF) | fast | quality |
+|------|--------------------------|------|---------|
+| nano | qwen2.5:0.5b | qwen2.5:3b | phi3:mini |
+| small | qwen2.5:0.5b | qwen2.5:7b | qwen2.5:7b |
+| medium | qwen2.5:0.5b | qwen2.5:7b | qwen2.5:14b |
+| large | qwen2.5:0.5b | qwen2.5:14b | qwen2.5:32b |
+| server | qwen2.5:0.5b | qwen2.5:32b | qwen2.5:72b |
+
+**Test file:** `tests/test_model_advisor.py` — 10 tests. Each tier threshold; edge cases (exactly 8 GB, Apple Silicon unified memory, multi-GPU server detection, max_concurrent_agents formula).
+
+---
+
+### P10-3: `config/features.py` — FeatureSet and profile feature mapping
+
+**Why third:** Feature flags must exist before any infrastructure factory checks them.
+
+**Deliverable:**
+```python
+class Feature(str, Enum):
+    INPROCESS | OLLAMA | VLLM | CLOUD | MCP | BROWSER | EMBEDDING | TELEMETRY | CONTAINER
+
+PROFILE_FEATURES: dict[ProfileTier, frozenset[Feature]]
+
+class FeatureDisabledError(RuntimeError):
+    feature: Feature
+    hint: str
+
+@dataclass
+class FeatureSet:
+    enabled: frozenset[Feature]
+    def is_enabled(self, f: Feature) -> bool
+    def require(self, f: Feature, hint: str = "") -> None   # raises FeatureDisabledError if off
+    @classmethod
+    def from_profile(cls, tier: ProfileTier, overrides: FeaturesConfig) -> "FeatureSet"
+```
+
+`FeaturesConfig` (added to `config/schema.py`): all fields `Optional[bool] = None` (None = use profile default).
+
+Feature defaults by profile: nano={inprocess,cloud}; small adds {ollama,mcp}; medium adds {vllm,embedding}; large adds {container}; server swaps ollama out, adds {telemetry}.
+
+**Test file:** `tests/test_features.py` — 8 tests. Cover: each profile produces correct FeatureSet; override enables a disabled feature; override disables an enabled feature; `require()` raises FeatureDisabledError; `require()` passes silently when enabled.
+
+---
+
+### P10-4: `config/schema.py` additions — profile, features, resource_limits
+
+**Deliverable:** Add to `ConciergeConfig`:
+```python
+profile: str = "auto"
+features: FeaturesConfig = FeaturesConfig()
+resource_limits: ResourceLimitsConfig = ResourceLimitsConfig()
+```
+New models:
+```python
+class ResourceLimitsConfig(BaseModel):
+    max_concurrent_agents: int = 4
+    max_ram_mb: Optional[int] = None
+    max_gpu_vram_mb: Optional[int] = None
+    model_cache_path: str = ""    # empty = use platformdirs default
+
+class FeaturesConfig(BaseModel):
+    inprocess: Optional[bool] = None
+    ollama: Optional[bool] = None
+    vllm: Optional[bool] = None
+    cloud: Optional[bool] = None
+    mcp: Optional[bool] = None
+    browser: Optional[bool] = None
+    embedding: Optional[bool] = None
+    telemetry: Optional[bool] = None
+    container: Optional[bool] = None
+```
+**Tests:** Extend `tests/test_config.py` — 6 new tests. Round-trip YAML; defaults; override serialises; `profile: auto` accepted.
+
+---
+
+### P10-5: `bootstrap/detected.py` — cross-platform detected.json
+
+**Deliverable:** `detected_path() -> Path`; `save_detected(profile: SystemProfile) -> None`; `load_detected() -> SystemProfile | None`; `is_first_run() -> bool`.
+
+Platform paths: Linux `~/.local/share/agentic-concierge/detected.json`; macOS `~/Library/Application Support/agentic-concierge/detected.json`; Windows `%LOCALAPPDATA%\agentic-concierge\detected.json`.
+
+**Tests:** In `tests/test_first_run.py` — use `tmp_path` fixture to override platform path.
+
+---
+
+### P10-6: `bootstrap/backend_manager.py` — probe and manage backends
+
+**Deliverable:** `BackendStatus(str, Enum)` + `BackendHealth` dataclass + `BackendManager`. Probes only backends enabled in the `FeatureSet`. Key methods:
+- `async probe_all(feature_set: FeatureSet) -> dict[str, BackendHealth]`
+- `async ensure_ollama(config: ConciergeConfig) -> BackendHealth`
+- `async probe_vllm(base_url: str) -> BackendHealth`
+- `probe_inprocess(feature_set: FeatureSet) -> BackendHealth` (sync)
+- `get_healthy_backends() -> list[str]`
+
+**Test file:** `tests/test_backend_manager.py` — 12 tests. All healthy; Ollama down but installed; vLLM disabled → not probed; inprocess not available; feature-disabled backend skipped entirely.
+
+---
+
+### P10-7: `infrastructure/chat/inprocess.py` — InProcessChatClient
+
+**Deliverable:** `InProcessChatClient(ChatClient)`. Lazy-imports `mistralrs` only when instantiated. `is_available() -> bool` (checks importability without importing). `chat()` converts OpenAI format to mistralrs API, returns `LLMResponse`. Raises `FeatureDisabledError` if `mistralrs` absent.
+
+Testable without the real wheel: mock `mistralrs` in `sys.modules`.
+
+**Test file:** `tests/test_inprocess_client.py` — 8 tests. `is_available()` true/false; chat with mocked mistralrs; tool call parsing; plain text response; `FeatureDisabledError` on missing dep.
+
+---
+
+### P10-8: `infrastructure/chat/vllm.py` — VLLMChatClient
+
+**Deliverable:** `VLLMChatClient(ChatClient)`. Pure httpx — no `vllm` Python package needed. `health_check() -> bool` (GET `/health`); `list_models() -> list[str]` (GET `/v1/models`); `chat()` delegates to `GenericChatClient`-style OpenAI-compat HTTP call.
+
+**Test file:** `tests/test_vllm_client.py` — 8 tests. Health check healthy/unhealthy; list models; chat happy path; non-2xx raises; timeout.
+
+---
+
+### P10-9: Update `build_chat_client()` for new backends
+
+**Deliverable:** In `infrastructure/chat/__init__.py`, dispatch `"inprocess"` → `InProcessChatClient` and `"vllm"` → `VLLMChatClient`. Lazy imports inside each branch. Extend existing chat factory tests (+4 tests).
+
+---
+
+### P10-10: `bootstrap/first_run.py` — FirstRunBootstrap orchestrator
+
+**Deliverable:** `async run(interactive: bool = True, force_profile: str | None = None) -> SystemProfile`:
+1. Check `is_first_run()` — return cached profile if detected.json exists (unless `--force`).
+2. Load in-process model concurrently with `probe_system()`.
+3. `advise_profile()` from probe.
+4. If interactive: Rich panel with profile summary.
+5. `BackendManager.ensure_ollama()` if ollama feature enabled.
+6. Pull recommended models with Rich progress (non-interactive: silent).
+7. `save_detected(profile)`.
+8. Return `SystemProfile`.
+
+**Test file:** `tests/test_first_run.py` — 10 tests. Happy path; skip when detected.json exists; force_profile overrides; non-interactive; Ollama not installed (graceful skip); model pull failure (warns, continues).
+
+---
+
+### P10-11: `concierge doctor` CLI command
+
+**Deliverable:** New `doctor` subcommand in `interfaces/cli.py`. Calls `BackendManager.probe_all()`. Rich table output: detected hardware, profile tier, backend health per backend (icon + status + models available), active features checklist, suggestions for unhealthy backends.
+
+**Test file:** `tests/test_doctor_cli.py` — 5 tests. Output contains expected sections; unhealthy backend shows fix hint; all-healthy path; no detected.json falls back to live probe.
+
+---
+
+### P10-12: `concierge bootstrap` CLI command
+
+**Deliverable:** `bootstrap` subcommand. Options: `--profile PROFILE` (override auto-detection), `--non-interactive` (no prompts/progress). Calls `FirstRunBootstrap.run()`. Idempotent: re-running overwrites detected.json. Tests covered in `test_first_run.py` via CLI runner.
+
+---
+
+### P10-13: Add `psutil` and `platformdirs` to core deps; update extras
+
+**Deliverable:** `pyproject.toml`:
+- Add `"psutil>=5.9"` and `"platformdirs>=4.0"` to `[project] dependencies`
+- Add `nano = ["mistralrs>=0.3"]`
+- Add `embed = ["chromadb>=0.4"]` (placeholder, Phase 11)
+- Add `browser = ["playwright>=1.40"]` (placeholder, Phase 11)
+- Update `all = ["agentic-concierge[mcp,otel,embed,browser]"]`
+
+---
+
+### P10-14: ARCHITECTURE.md update
+
+**Deliverable:** Update `docs/ARCHITECTURE.md` to reflect: bootstrap layer, three-layer inference stack, feature flag gating, platformdirs paths, new `BackendManager` in lifespan, new CLI commands. Do this when implementation begins, not before (keep docs honest).
+

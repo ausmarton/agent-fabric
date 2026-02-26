@@ -219,3 +219,86 @@ def test_specialist_config_duplicate_mcp_server_names_raises():
                 MCPServerConfig(name="dup", transport="stdio", command="npx"),
             ],
         )
+
+
+# ---------------------------------------------------------------------------
+# P10-4: profile, features, resource_limits fields on ConciergeConfig
+# ---------------------------------------------------------------------------
+
+def test_config_default_profile_is_auto():
+    assert DEFAULT_CONFIG.profile == "auto"
+
+
+def test_config_features_default_all_none():
+    """All feature overrides default to None (use profile default)."""
+    from agentic_concierge.config.schema import FeaturesConfig
+    fc = FeaturesConfig()
+    for field_name in ["inprocess", "ollama", "vllm", "cloud", "mcp",
+                        "browser", "embedding", "telemetry", "container"]:
+        assert getattr(fc, field_name) is None
+
+
+def test_config_resource_limits_defaults():
+    from agentic_concierge.config.schema import ResourceLimitsConfig
+    rl = ResourceLimitsConfig()
+    assert rl.max_concurrent_agents == 4
+    assert rl.max_ram_mb is None
+    assert rl.max_gpu_vram_mb is None
+    assert rl.model_cache_path == ""
+
+
+def test_config_features_override_round_trip():
+    """Features can be set to True/False and round-trip through model_dump."""
+    from agentic_concierge.config.schema import FeaturesConfig
+    fc = FeaturesConfig(ollama=True, vllm=False)
+    d = fc.model_dump()
+    assert d["ollama"] is True
+    assert d["vllm"] is False
+    assert d["inprocess"] is None
+
+
+def test_config_profile_field_from_file(monkeypatch):
+    """profile field loads from JSON config."""
+    import tempfile
+    from agentic_concierge.config import loader as config_loader
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        import json
+        json.dump({
+            "models": DEFAULT_CONFIG.model_dump()["models"],
+            "specialists": DEFAULT_CONFIG.model_dump()["specialists"],
+            "profile": "medium",
+        }, f)
+        path = f.name
+    try:
+        monkeypatch.setenv("CONCIERGE_CONFIG_PATH", path)
+        monkeypatch.setattr(config_loader, "_env", None)
+        from agentic_concierge.config import get_config
+        cfg = get_config()
+        assert cfg.profile == "medium"
+    finally:
+        from pathlib import Path
+        Path(path).unlink(missing_ok=True)
+
+
+def test_config_resource_limits_from_file(monkeypatch):
+    """resource_limits loads from JSON config."""
+    import tempfile
+    from agentic_concierge.config import loader as config_loader
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        import json
+        json.dump({
+            "models": DEFAULT_CONFIG.model_dump()["models"],
+            "specialists": DEFAULT_CONFIG.model_dump()["specialists"],
+            "resource_limits": {"max_concurrent_agents": 8, "max_ram_mb": 16384},
+        }, f)
+        path = f.name
+    try:
+        monkeypatch.setenv("CONCIERGE_CONFIG_PATH", path)
+        monkeypatch.setattr(config_loader, "_env", None)
+        from agentic_concierge.config import get_config
+        cfg = get_config()
+        assert cfg.resource_limits.max_concurrent_agents == 8
+        assert cfg.resource_limits.max_ram_mb == 16384
+    finally:
+        from pathlib import Path
+        Path(path).unlink(missing_ok=True)

@@ -329,6 +329,105 @@ def logs_show(
         console.print(Syntax(json.dumps(ev, indent=2, ensure_ascii=False), "json", theme="monokai"))
 
 
+@app.command()
+def doctor(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full error details."),
+) -> None:
+    """Check system health: hardware, profile tier, and backend status."""
+    import asyncio as _asyncio
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+
+    console = Console()
+
+    # Probe system
+    from agentic_concierge.bootstrap.system_probe import probe_system
+    from agentic_concierge.bootstrap.model_advisor import advise_profile
+    from agentic_concierge.bootstrap.detected import load_detected
+    from agentic_concierge.bootstrap.backend_manager import BackendManager, BackendStatus
+    from agentic_concierge.config.features import Feature, FeatureSet, PROFILE_FEATURES
+
+    console.print("[dim]Probing system…[/dim]")
+    probe = _asyncio.run(probe_system())
+    profile = load_detected()
+    if profile is None:
+        profile = advise_profile(probe)
+
+    # Hardware summary
+    gpu_info = (
+        ", ".join(f"{d.name} ({d.vram_mb} MB)" for d in probe.gpu_devices)
+        or "None detected"
+    )
+    console.print(Panel.fit(
+        f"[bold]Profile:[/bold]   {profile.tier.value.upper()}\n"
+        f"[bold]CPU:[/bold]       {probe.cpu_cores} cores ({probe.cpu_arch})\n"
+        f"[bold]RAM:[/bold]       {probe.ram_total_mb // 1024} GB total, "
+        f"{probe.ram_available_mb // 1024} GB available\n"
+        f"[bold]GPU:[/bold]       {gpu_info}\n"
+        f"[bold]Disk free:[/bold] {probe.disk_free_mb // 1024} GB\n"
+        f"[bold]Internet:[/bold]  {'✓ reachable' if probe.internet_reachable else '✗ unreachable'}",
+        title="[bold]System[/bold]",
+    ))
+
+    # Feature set
+    cfg = load_config()
+    feature_set = FeatureSet.from_profile(profile.tier, cfg.features)
+    feat_table = Table(show_header=True, header_style="bold")
+    feat_table.add_column("Feature")
+    feat_table.add_column("Status")
+    for f in Feature:
+        status = "[green]✓ enabled[/green]" if feature_set.is_enabled(f) else "[dim]✗ disabled[/dim]"
+        feat_table.add_row(f.value, status)
+    console.print(feat_table)
+
+    # Backend health
+    mgr = BackendManager()
+    health_map = _asyncio.run(mgr.probe_all(feature_set))
+    backend_table = Table(show_header=True, header_style="bold")
+    backend_table.add_column("Backend")
+    backend_table.add_column("Status")
+    backend_table.add_column("Models")
+    backend_table.add_column("Hint", overflow="fold")
+    for name, h in health_map.items():
+        if h.status == BackendStatus.HEALTHY:
+            status_str = "[green]● healthy[/green]"
+        elif h.status == BackendStatus.DISABLED:
+            status_str = "[dim]○ disabled[/dim]"
+        else:
+            err = f" ({h.error})" if verbose and h.error else ""
+            status_str = f"[red]✗ {h.status.value}[/red]{err}"
+        models_str = ", ".join(h.models[:3]) or "—"
+        hint = h.hint or "—"
+        backend_table.add_row(name, status_str, models_str, hint)
+    console.print(backend_table)
+
+
+@app.command("bootstrap")
+def bootstrap_cmd(
+    profile: str = typer.Option(
+        "", "--profile", "-p",
+        help="Override detected profile tier (nano|small|medium|large|server).",
+    ),
+    non_interactive: bool = typer.Option(
+        False, "--non-interactive", help="Skip prompts and Rich progress panels."
+    ),
+) -> None:
+    """Detect hardware, select profile, and pull recommended models."""
+    import asyncio as _asyncio
+    from agentic_concierge.bootstrap import first_run
+
+    force = profile.strip() or None
+    try:
+        sys_profile = _asyncio.run(
+            first_run.run(interactive=not non_interactive, force_profile=force)
+        )
+        rprint(f"[green]Bootstrap complete.[/green] Profile: [bold]{sys_profile.tier.value}[/bold]")
+    except ValueError as e:
+        rprint(f"[red]{e}[/red]")
+        sys.exit(1)
+
+
 @logs_app.command("search")
 def logs_search(
     query: str = typer.Argument(..., help="Search query for past run prompts and summaries."),

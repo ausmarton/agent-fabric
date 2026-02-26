@@ -170,6 +170,50 @@ class RunIndexConfig(BaseModel):
     )
 
 
+class FeaturesConfig(BaseModel):
+    """Per-feature overrides for the auto-detected profile.
+
+    Each field is ``Optional[bool]``:
+    - ``None`` (default): use the profile's default for this feature.
+    - ``True``: force-enable even if the profile disables it.
+    - ``False``: force-disable even if the profile enables it.
+    """
+
+    inprocess: Optional[bool] = None
+    ollama: Optional[bool] = None
+    vllm: Optional[bool] = None
+    cloud: Optional[bool] = None
+    mcp: Optional[bool] = None
+    browser: Optional[bool] = None
+    embedding: Optional[bool] = None
+    telemetry: Optional[bool] = None
+    container: Optional[bool] = None
+
+
+class ResourceLimitsConfig(BaseModel):
+    """Resource caps for the concierge runtime."""
+
+    max_concurrent_agents: int = Field(
+        4,
+        description="Maximum number of specialist agents to run in parallel.",
+    )
+    max_ram_mb: Optional[int] = Field(
+        None,
+        description="Hard cap on RAM usage in MB. None = no cap (use system total).",
+    )
+    max_gpu_vram_mb: Optional[int] = Field(
+        None,
+        description="Hard cap on GPU VRAM usage in MB. None = no cap.",
+    )
+    model_cache_path: str = Field(
+        "",
+        description=(
+            "Directory for downloaded model weights. "
+            "Empty string = use platformdirs user_data_path('agentic-concierge')."
+        ),
+    )
+
+
 class TelemetryConfig(BaseModel):
     """Optional OpenTelemetry tracing configuration."""
     enabled: bool = False
@@ -189,6 +233,24 @@ class ConciergeConfig(BaseModel):
     models: Dict[str, ModelConfig]
     specialists: Dict[str, SpecialistConfig]
     telemetry: Optional[TelemetryConfig] = None
+    profile: str = Field(
+        "auto",
+        description=(
+            "System profile tier: 'auto' (detect from hardware), 'nano', 'small', "
+            "'medium', 'large', or 'server'. 'auto' runs system_probe() on first launch."
+        ),
+    )
+    features: FeaturesConfig = Field(
+        default_factory=FeaturesConfig,
+        description=(
+            "Per-feature overrides. Each field is True (force-enable), False (force-disable), "
+            "or None (use profile default). See FeaturesConfig for available flags."
+        ),
+    )
+    resource_limits: ResourceLimitsConfig = Field(
+        default_factory=ResourceLimitsConfig,
+        description="Resource caps for the concierge runtime.",
+    )
     run_index: RunIndexConfig = Field(
         default_factory=RunIndexConfig,
         description=(

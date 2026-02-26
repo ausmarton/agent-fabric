@@ -21,6 +21,16 @@ def build_chat_client(model_config: ModelConfig) -> ChatClient:
         bare OpenAI-compatible client; suitable for cloud providers (OpenAI,
         Anthropic via LiteLLM bridge, vLLM, LM Studio, etc.).
 
+    ``"vllm"``
+        :class:`~agentic_concierge.infrastructure.chat.vllm.VLLMChatClient` —
+        OpenAI-compatible client optimised for vLLM; supports CUDA and ROCm,
+        no ``vllm`` Python package required.
+
+    ``"inprocess"``
+        :class:`~agentic_concierge.infrastructure.chat.inprocess.InProcessChatClient` —
+        in-process inference via mistral.rs (requires ``[nano]`` extra).
+        ``model_config.model`` is treated as the path to a GGUF model file.
+
     Raises:
         ValueError: For unknown backend values.
     """
@@ -39,7 +49,18 @@ def build_chat_client(model_config: ModelConfig) -> ChatClient:
             api_key=model_config.api_key,
             timeout_s=model_config.timeout_s,
         )
+    if backend == "vllm":
+        from agentic_concierge.infrastructure.chat.vllm import VLLMChatClient
+        return VLLMChatClient(
+            base_url=model_config.base_url,
+            api_key=model_config.api_key,
+            timeout_s=model_config.timeout_s,
+        )
+    if backend == "inprocess":
+        from agentic_concierge.infrastructure.chat.inprocess import InProcessChatClient
+        return InProcessChatClient(model_path=model_config.model)
     raise ValueError(
         f"Unknown LLM backend {backend!r}. "
-        "Supported backends: 'ollama' (default), 'generic' (OpenAI-compatible cloud/vLLM)."
+        "Supported backends: 'ollama' (default), 'generic' (OpenAI-compatible cloud/vLLM), "
+        "'vllm' (vLLM server), 'inprocess' (mistral.rs, requires [nano] extra)."
     )

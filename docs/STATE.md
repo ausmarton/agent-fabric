@@ -2,11 +2,11 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-26. Fast CI: **402 pass** (T1 + T2 + T3 tiers complete; Phases 2–9 complete).
+**Last updated:** 2026-02-26. Fast CI: **495 pass** (Phases 1–10 complete).
 
 ---
 
-## Current phase: **Phase 9 complete**
+## Current phase: **Phase 10 complete**
 
 Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are all done.
 
@@ -142,13 +142,32 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 
 ---
 
+## Phase 10 checklist — **complete**
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| P10-1 | `bootstrap/system_probe.py` | Done | `SystemProbe`, `GPUDevice`, `probe_system()` async; psutil+platformdirs |
+| P10-2 | `bootstrap/model_advisor.py` | Done | `ProfileTier` in `config/features.py`; `SystemProfile`, `advise_profile()` |
+| P10-3 | `config/features.py` | Done | `Feature`, `PROFILE_FEATURES`, `FeatureDisabledError`, `FeatureSet` |
+| P10-4 | `config/schema.py` additions | Done | `FeaturesConfig`, `ResourceLimitsConfig`; `profile/features/resource_limits` on `ConciergeConfig` |
+| P10-5 | `bootstrap/detected.py` | Done | `detected_path()`, `save_detected()`, `load_detected()`, `is_first_run()` via platformdirs |
+| P10-6 | `bootstrap/backend_manager.py` | Done | `BackendStatus`, `BackendHealth`, `BackendManager`; feature-gated probing |
+| P10-7 | `infrastructure/chat/inprocess.py` | Done | `InProcessChatClient` lazy-imports mistralrs; `is_available()` |
+| P10-8 | `infrastructure/chat/vllm.py` | Done | `VLLMChatClient`; pure httpx; `health_check()`, `list_models()`, `chat()` |
+| P10-9 | Update `build_chat_client()` | Done | Dispatches `”vllm”` and `”inprocess”` backends |
+| P10-10 | `bootstrap/first_run.py` | Done | `run()` orchestrates probe→advise→ensure_ollama→pull→save |
+| P10-11 | `concierge doctor` CLI | Done | Rich table: hardware, profile, feature flags, backend health |
+| P10-12 | `concierge bootstrap` CLI | Done | Calls `first_run.run()`; `--profile`, `--non-interactive` |
+| P10-13 | `pyproject.toml` dep/extras | Done | `psutil>=5.9`, `platformdirs>=4.0` core; `nano`, `embed`, `browser`, `all` extras |
+| P10-14 | Tests | Done | 7 new test files, 93 new tests; total fast CI: **495 pass** |
+
 ## Next steps (what to do when resuming)
 
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **402 pass** before touching code.
-3. Phase 9 is complete — see BACKLOG.md for Phase 10 planning or add new items.
+2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **495 pass** before touching code.
+3. Phase 10 is complete — see BACKLOG.md for Phase 11 planning or add new items.
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---
@@ -187,7 +206,7 @@ The tool loop was completely reworked from a fragile JSON-in-content protocol to
 
 ## Blockers / open questions
 
-- None at last update.
+- None at last update. Phase 10 spec is locked. Ready to implement.
 
 ---
 

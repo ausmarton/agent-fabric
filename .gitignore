@@ -41,6 +41,8 @@ htmlcov/
 # Agentic concierge runtime
 .concierge/
 concierge_workspace/
+.fabric/
+fabric_workspace/
 
 # Distribution
 *.dist-info/

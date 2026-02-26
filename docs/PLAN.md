@@ -217,3 +217,190 @@ This document defines **phases**, **deliverables**, and **verification gates** s
 - **Resume by:** Reading STATE.md → PLAN.md (current phase) → run verification → do next deliverable.
 - **Always:** Keep STATE.md updated when completing or starting work; run `pytest tests/ -v` before considering a phase done.
 - **Value:** Phase 1 delivers a working, testable, documented fabric; Phase 2 aligns routing with the vision (task → capabilities → recruit); Phase 3 enables multi-pack task forces; Phase 4 adds observability and multi-backend LLM; Phase 5 adds MCP tool server support; Phase 6 adds workspace isolation (Podman), cross-run memory (run index), real MCP verification, and cloud LLM fallback; Phase 7 upgrades to semantic search, real enterprise integrations (GitHub, Confluence, Jira), and an enterprise research specialist; Phase 8 adds parallel task forces, SSE streaming, and run status.
+
+---
+
+## Phase 9: CLI streaming, LLM error recovery, rate limiting — **complete**
+
+### Deliverables (Phase 9)
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| 9.1 | `concierge run --stream` (`-s`) — Rich terminal rendering of all run events in real-time | Done | `interfaces/cli.py`; `StreamRenderer` per event kind; asyncio task + queue drain |
+| 9.2 | Corrective re-prompt — LLM plain-text response triggers up to 2 re-prompts before fallback | Done | `_execute_pack_loop` in `execute_task.py`; `corrective_reprompt` runlog event |
+| 9.3 | `CONCIERGE_RATE_LIMIT=<n>` — per-IP sliding-window rate limiting, 429 + Retry-After | Done | `interfaces/http_api.py`; in-process deque per IP |
+| 9.4 | Sandbox absolute-path error message | Done | `infrastructure/tools/sandbox.py`; clear message with "use relative path e.g. 'app.py'" hint |
+
+**Phase 9 acceptance:** All 4 deliverables implemented; fast CI: **402 pass**.
+
+---
+
+## Phase 10: Self-sizing bootstrap, three-layer inference, profile-based features
+
+**Goal:** The system detects its host environment on first run, selects an appropriate hardware
+profile, starts an in-process tiny model immediately (zero setup), and configures Ollama and/or
+vLLM as full backends. Features that are not enabled by the profile consume zero resources
+(no imports, no processes, no RAM). After this phase, `concierge` works out of the box on any
+hardware from a 4 GB RAM laptop to a multi-GPU server with no manual configuration required.
+
+**See also:** ADR-012 (three-layer inference), ADR-013 (feature flags), ADR-014 (in-process
+bootstrap), ADR-015 (vLLM first-class), ADR-016 (Rust launcher — Phase 13).
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `src/agentic_concierge/bootstrap/__init__.py` | Package init |
+| `src/agentic_concierge/bootstrap/system_probe.py` | Detect CPU/RAM/GPU/disk/network; `SystemProbe`, `GPUDevice` |
+| `src/agentic_concierge/bootstrap/model_advisor.py` | `SystemProfile`, `ProfileTier`; model + backend recommendations per tier |
+| `src/agentic_concierge/bootstrap/backend_manager.py` | `BackendManager`, `BackendHealth`, `BackendStatus`; probe/start/monitor backends |
+| `src/agentic_concierge/bootstrap/first_run.py` | `FirstRunBootstrap`; orchestrates first-run: probe → advise → install → pull → write detected.json |
+| `src/agentic_concierge/bootstrap/detected.py` | Read/write `detected.json` via `platformdirs` |
+| `src/agentic_concierge/config/features.py` | `Feature` enum, `PROFILE_FEATURES` mapping, `FeatureSet`, `FeatureDisabledError` |
+| `src/agentic_concierge/infrastructure/chat/inprocess.py` | `InProcessChatClient` — mistral.rs via PyO3; lazy import of `mistralrs` |
+| `src/agentic_concierge/infrastructure/chat/vllm.py` | `VLLMChatClient` — thin wrapper over OpenAI-compat HTTP + health check |
+
+### Modified files
+
+| File | Change |
+|------|--------|
+| `src/agentic_concierge/config/schema.py` | Add `profile`, `features: FeaturesConfig`, `resource_limits: ResourceLimitsConfig` to `ConciergeConfig`; add `FeaturesConfig`, `ResourceLimitsConfig` models |
+| `src/agentic_concierge/infrastructure/chat/__init__.py` | Handle `"inprocess"` and `"vllm"` backends in `build_chat_client()` |
+| `src/agentic_concierge/interfaces/cli.py` | Add `concierge doctor` and `concierge bootstrap` subcommands |
+| `src/agentic_concierge/interfaces/http_api.py` | Initialise `BackendManager` in lifespan; store on app state |
+| `pyproject.toml` | Add `psutil>=5.9`, `platformdirs>=4.0` to core deps; add `[nano]`, `[vllm]`, `[browser]`, `[embed]` extras |
+
+### Deliverables (Phase 10)
+
+| # | Deliverable | Where | Verification |
+|---|-------------|-------|--------------|
+| 10.1 | `SystemProbe` — detect CPU/RAM/GPU/disk/internet/backends | `bootstrap/system_probe.py` | `tests/test_system_probe.py` (15 tests, all mocked) |
+| 10.2 | `ModelAdvisor` — `ProfileTier` + model/backend recommendations | `bootstrap/model_advisor.py` | `tests/test_model_advisor.py` (10 tests) |
+| 10.3 | `BackendManager` — probe/start/health-check all three backends | `bootstrap/backend_manager.py` | `tests/test_backend_manager.py` (12 tests) |
+| 10.4 | `FirstRunBootstrap` — first-run orchestrator | `bootstrap/first_run.py` | `tests/test_first_run.py` (10 tests); `concierge bootstrap --non-interactive` |
+| 10.5 | `detected.py` — cross-platform detected.json via platformdirs | `bootstrap/detected.py` | `tests/test_first_run.py`; manual: `~/.local/share/agentic-concierge/detected.json` exists after bootstrap |
+| 10.6 | `FeatureSet` + profile feature mapping | `config/features.py` | `tests/test_features.py` (8 tests); disabled feature raises `FeatureDisabledError` |
+| 10.7 | `ConciergeConfig` schema additions (`profile`, `features`, `resource_limits`) | `config/schema.py` | `tests/test_config.py` (extend existing); round-trip YAML |
+| 10.8 | `InProcessChatClient` (mistral.rs via PyO3) | `infrastructure/chat/inprocess.py` | `tests/test_inprocess_client.py` (8 tests, mistralrs mocked) |
+| 10.9 | `VLLMChatClient` (OpenAI-compat HTTP + health check) | `infrastructure/chat/vllm.py` | `tests/test_vllm_client.py` (8 tests, httpx mocked) |
+| 10.10 | `build_chat_client()` handles `"inprocess"` and `"vllm"` | `infrastructure/chat/__init__.py` | existing + new chat factory tests |
+| 10.11 | `concierge doctor` — show profile, backend health, feature flags | `interfaces/cli.py` | manual: `concierge doctor` on dev machine; `tests/test_doctor_cli.py` (5 tests) |
+| 10.12 | `concierge bootstrap [--profile P] [--non-interactive]` | `interfaces/cli.py` | `concierge bootstrap --non-interactive` exits 0; detected.json written |
+| 10.13 | `psutil` + `platformdirs` added to core deps | `pyproject.toml` | install + import without extras |
+| 10.14 | Docs updated (STATE, PLAN, BACKLOG, DECISIONS, ARCHITECTURE) | `docs/` | this table; ADR-012 through ADR-016 in DECISIONS.md |
+
+### Key data structures
+
+```python
+# bootstrap/system_probe.py
+@dataclass
+class GPUDevice:
+    vendor: str          # "nvidia" | "amd" | "apple"
+    name: str
+    vram_mb: int
+    index: int
+
+@dataclass
+class SystemProbe:
+    cpu_cores: int
+    cpu_arch: str        # "x86_64" | "aarch64" | "apple_silicon"
+    ram_total_mb: int
+    ram_available_mb: int
+    gpu_devices: list[GPUDevice]
+    disk_free_mb: int
+    internet_reachable: bool
+    ollama_installed: bool
+    ollama_reachable: bool
+    vllm_reachable: bool
+    mistralrs_available: bool
+
+# bootstrap/model_advisor.py
+class ProfileTier(str, Enum):
+    NANO = "nano" | SMALL = "small" | MEDIUM = "medium" | LARGE = "large" | SERVER = "server"
+
+@dataclass
+class SystemProfile:
+    tier: ProfileTier
+    max_concurrent_agents: int
+    recommended_models: dict[str, str]   # "fast"/"quality"/"routing" -> model name
+    recommended_backends: list[str]      # ordered preference
+    resource_limits: ResourceLimitsConfig
+    reasoning: str
+
+# config/features.py
+class Feature(str, Enum):
+    INPROCESS | OLLAMA | VLLM | CLOUD | MCP | BROWSER | EMBEDDING | TELEMETRY | CONTAINER
+
+@dataclass
+class FeatureSet:
+    enabled: frozenset[Feature]
+    def is_enabled(self, f: Feature) -> bool
+    def require(self, f: Feature, hint: str = "") -> None  # raises FeatureDisabledError if off
+```
+
+### Profile tier thresholds
+
+| Profile | RAM | GPU VRAM | Primary backend | Routing backend | Max agents (formula) |
+|---------|-----|----------|-----------------|-----------------|----------------------|
+| nano    | < 8 GB | any | in-process | in-process | 1 |
+| small   | 8–16 GB | < 4 GB | Ollama | in-process | 2 |
+| medium  | 16–32 GB | 4–12 GB | Ollama or vLLM | in-process | 4 |
+| large   | 32–64 GB | 12–24 GB | vLLM | in-process | 8 |
+| server  | 64 GB+ | 24 GB+ or multi-GPU | vLLM | in-process | 16+ |
+
+Max agents formula: `floor((available_ram_mb - reserved_system_mb - 512) / model_ctx_mb) clamped to cpu_cores - 1`
+
+### Model recommendations per profile
+
+| Profile | routing (in-process) | fast | quality |
+|---------|----------------------|------|---------|
+| nano    | qwen2.5:0.5b (GGUF) | qwen2.5:3b | phi3:mini |
+| small   | qwen2.5:0.5b (GGUF) | qwen2.5:7b | qwen2.5:7b |
+| medium  | qwen2.5:0.5b (GGUF) | qwen2.5:7b | qwen2.5:14b |
+| large   | qwen2.5:0.5b (GGUF) | qwen2.5:14b | qwen2.5:32b |
+| server  | qwen2.5:0.5b (GGUF) | qwen2.5:32b | qwen2.5:72b |
+
+All models listed support native tool calling. Minimum viable model = ~3B parameters with instruction + tool-use fine-tuning.
+
+### First-run bootstrap flow
+
+```
+1. Binary/CLI invoked; bootstrap/detected.py checks for detected.json — not found
+2. FirstRunBootstrap.run() starts:
+   a. In-process model loads immediately (system responds NOW, zero setup)
+   b. SystemProbe runs in background (psutil, subprocess to nvidia-smi/rocm-smi)
+3. ProfileTier determined from probe results
+4. Interactive: Rich panel shows "Detected: medium profile — 16 GB RAM, NVIDIA RTX 3080 (8 GB)"
+5. If Ollama not installed: prompt to install (or skip for inprocess/cloud-only)
+6. Ollama started if installed but not running
+7. Recommended models pulled in background with Rich progress bar
+8. detected.json written to platformdirs user_data_path("agentic-concierge")
+9. System fully operational — hands off to normal request handling
+```
+
+### New dependencies
+
+```toml
+# Added to [project] core dependencies
+"psutil>=5.9"        # RAM/CPU/disk detection (lightweight, no native deps)
+"platformdirs>=4.0"  # cross-platform config/data/cache paths (XDG on Linux, native on macOS/Windows)
+
+# New optional extras
+nano    = ["mistralrs>=0.3"]    # in-process inference wheel (CPU/CUDA/Metal variants)
+vllm    = []                    # reserved — vLLM HTTP client uses existing httpx, no extra pkg needed
+browser = ["playwright>=1.40"]  # Phase 11
+embed   = ["chromadb>=0.4"]     # Phase 11+
+all     = ["agentic-concierge[mcp,otel,embed,browser]"]  # nano excluded (platform-specific wheel)
+```
+
+### Phase 10 verification gate
+
+- [ ] `concierge doctor` runs on dev machine; shows detected tier, backend health, active features
+- [ ] `concierge bootstrap --non-interactive` exits 0; `detected.json` written to platform data dir
+- [ ] `profile: nano` in config → `vllm`, `browser`, `embedding`, `container` features disabled: no imports, no processes
+- [ ] Fast CI: **~473 pass** (+71 new tests across 7 new test files)
+- [ ] `ruff check src/ tests/ --select E,W,F --ignore E501,F401,E741` passes clean
+- [ ] On mocked "first run" (no detected.json): bootstrap flow runs without error in tests
+
+**Phase 10 acceptance:** All 14 deliverables implemented; fast CI ~473 pass; `concierge doctor` works on the development machine; `concierge bootstrap --non-interactive` writes `detected.json`; feature flag gating verified (disabled feature = zero resource cost confirmed by test).
+

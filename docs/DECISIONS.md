@@ -294,3 +294,206 @@ this because the connection/disconnection calls are themselves async (MCP SDK us
   guarded by `try/except ImportError` and a `_MCP_AVAILABLE` flag, so the `infrastructure/mcp`
   package is importable without the dep installed. The registry performs a lazy import and raises
   a clear `RuntimeError` with an install hint when `mcp_servers` is configured without the package.
+
+---
+
+## ADR-012: Three-layer inference stack (in-process / Ollama / vLLM)
+
+**Status:** Accepted
+**Date:** 2026-02-26
+
+**Context:** We need a single system that works on hardware ranging from a 4 GB RAM laptop to a
+multi-GPU server, and that delivers an immediately useful response on first run before any model
+server is set up. Ollama alone is the wrong choice for all scenarios: it is not designed for
+high-throughput concurrent requests (it serves one request at a time per model), which is
+exactly the workload produced by parallel specialist task forces. vLLM is the right choice for
+concurrent workloads but requires more setup and does not serve small models efficiently.
+
+**Decision:** Three inference layers coexist and complement each other:
+
+1. **In-process (mistral.rs via PyO3 wheel)** — always present on every profile. Starts in
+   milliseconds, no server required. Used as: (a) the primary inference engine on `nano`
+   profile; (b) the dedicated routing/planning brain on all profiles (routing decisions are
+   low-complexity tasks that should not consume Ollama/vLLM capacity); (c) the bootstrap
+   agent that guides setup while heavier backends install in the background.
+
+2. **Ollama (local model server)** — primary task-execution backend for `small` and `medium`
+   profiles. Easy cross-platform install, good quantisation support, excellent model registry.
+   On `large`/`server` profiles it is kept for development and testing only.
+
+3. **vLLM (production model server)** — primary task-execution backend for `large` and
+   `server` profiles. Continuous batching and paged attention allow multiple concurrent
+   agents to be served efficiently. Both CUDA (NVIDIA) and ROCm (AMD) are supported.
+
+Cloud API (OpenAI, Anthropic, etc.) is a fourth optional layer available on all profiles as
+fallback or primary when no local capability is present (nano + no in-process dep installed).
+
+**Consequences:**
+- `build_chat_client()` gains `"inprocess"` and `"vllm"` as valid `backend` values.
+- In-process client (`InProcessChatClient`) uses lazy import of `mistralrs`; raises
+  `FeatureDisabledError` if the `[nano]` extra is not installed.
+- vLLM client (`VLLMChatClient`) is a thin wrapper over the OpenAI-compatible HTTP API;
+  the `vllm` Python package is not required on the client side.
+- `BackendManager` probes all three local backends at startup and caches health.
+- The routing model key (`routing_model_key` config field) should point to an `inprocess`
+  backend model on all profiles to minimise latency and avoid consuming task-execution capacity.
+
+---
+
+## ADR-013: Profile-based feature flags — disabled means truly zero resource cost
+
+**Status:** Accepted
+**Date:** 2026-02-26
+
+**Context:** The system must work on everything from a 4 GB RAM nano install to a 64 GB+ server.
+Features like vLLM, browser automation, vector embedding, and container isolation must not
+consume any RAM, CPU, or disk I/O when not needed. Simply not configuring a feature is
+insufficient if the code still imports the module, spawns health-check loops, or holds
+background threads.
+
+**Decision:** A `FeatureSet` derived from a `profile` config value (or `auto`-detected) controls
+which features are active. Features are gated at four levels simultaneously:
+
+1. **Install-time:** Optional pip extras (`[browser]`, `[nano]`, `[embed]`, `[otel]`) mean the
+   dependency is never installed unless requested.
+2. **Import-time:** Lazy imports inside factory functions (the import only executes when the
+   feature is enabled and the factory function is called).
+3. **Config-time:** Objects are never instantiated for disabled features. `BackendManager`
+   skips disabled backends entirely.
+4. **Process-time:** No background processes are spawned. MCP servers, Playwright browsers,
+   and backend health-check loops only start if the feature is enabled.
+
+Profile -> feature defaults:
+
+| Profile | inprocess | ollama | vllm | cloud | mcp | browser | embedding | container | telemetry |
+|---------|-----------|--------|------|-------|-----|---------|-----------|-----------|-----------|
+| nano    | yes | — | — | yes | — | — | — | — | — |
+| small   | yes | yes | — | yes | yes | — | — | — | — |
+| medium  | yes | yes | yes | yes | yes | — | yes | — | — |
+| large   | yes | yes | yes | yes | yes | — | yes | yes | — |
+| server  | yes | — | yes | yes | yes | — | yes | yes | yes |
+
+Individual features can be overridden in `config.yaml` `features:` block regardless of profile.
+
+**Consequences:**
+- `config/features.py` is a new module defining `Feature` enum, `PROFILE_FEATURES` mapping,
+  `FeatureSet` dataclass, and `FeatureDisabledError`.
+- `ConciergeConfig` gains `profile: str` and `features: FeaturesConfig` fields.
+- All infrastructure factories accept a `FeatureSet` and call `feature_set.require(Feature.X)`
+  before doing any work for feature X.
+- Browser (`[browser]` extra) is not enabled by default on any profile in Phase 10; it is
+  reserved for Phase 11 when Playwright integration is built.
+
+---
+
+## ADR-014: In-process inference as bootstrap layer and permanent routing brain
+
+**Status:** Accepted
+**Date:** 2026-02-26
+
+**Context:** A key design goal is "works on first run without any prior setup". If the only
+inference backend is Ollama, the user must install Ollama and pull a model before the system
+can do anything. This creates a chicken-and-egg problem: we want an agentic system to guide
+setup, but the agentic system needs a model to run. Additionally, routing decisions (which
+specialists to recruit) happen on every request and are low-complexity tasks that should not
+consume the same capacity as actual task execution.
+
+**Decision:**
+- A small quantised model (~1–2 GB) is bundled or auto-downloaded on first run for in-process
+  inference via `mistralrs` (PyO3 bindings to mistral.rs, a Rust inference engine supporting
+  GGUF models — same format as llama.cpp).
+- This in-process model starts in under 1 second and is immediately available before Ollama or
+  vLLM are set up. The `FirstRunBootstrap` orchestrator uses it to guide the user through setup.
+- On all profiles (not just nano), `routing_model_key` is wired to the in-process backend.
+  Routing calls are therefore sub-100ms and consume no Ollama/vLLM capacity.
+- On nano profile the in-process model also handles task execution (Ollama is optional).
+
+**Why mistral.rs over llama.cpp:**
+- Same GGUF model format; identical model compatibility.
+- Pure Rust implementation — consistent with the planned Rust launcher binary (Phase 13).
+  One native toolchain rather than mixing C++ (llama.cpp) and Rust.
+- PyO3 bindings are maintained alongside the core library.
+- Supports CPU, CUDA, ROCm, and Apple Metal via the same interface.
+
+**Consequences:**
+- `[nano]` optional extra: `mistralrs>=0.3` (platform-specific wheel: -cpu, -cuda, -metal).
+- `InProcessChatClient` is a new `ChatClient` implementation. It is the only client that
+  does not require a network connection.
+- The `routing_model_key` default changes from `"fast"` to `"routing"` where `"routing"` maps
+  to an `inprocess` backend `ModelConfig`.
+- On nano profile with no `[nano]` extra installed and no cloud key: `concierge` raises a
+  clear error on install pointing to `pip install agentic-concierge[nano]`.
+
+---
+
+## ADR-015: vLLM is a first-class concurrent-agent backend from Phase 10, not deferred
+
+**Status:** Accepted
+**Date:** 2026-02-26
+
+**Context:** The earlier plan deferred vLLM to Phase 12. This was reconsidered when analysing
+the system's actual concurrent workload. When `task_force_mode: parallel` runs three specialist
+agents simultaneously, all three issue LLM requests at the same time. Ollama serves requests
+sequentially per model: three simultaneous agents wait 3x the per-request latency. vLLM's
+continuous batching serves all three in approximately the time of one request.
+
+**Decision:** vLLM is added as a first-class backend in Phase 10 alongside Ollama:
+- `VLLMChatClient` added to `infrastructure/chat/vllm.py`.
+- `BackendManager` probes vLLM at startup alongside Ollama and in-process.
+- `"vllm"` added as a valid `ModelConfig.backend` value in `build_chat_client()`.
+- Profile defaults: medium/large/server profiles use vLLM as primary task-execution backend.
+- vLLM supports CUDA (NVIDIA) and ROCm (AMD) — it is not CUDA-only.
+
+**Implementation note:** vLLM exposes an OpenAI-compatible /v1/chat/completions API.
+`VLLMChatClient` is a thin wrapper that adds health-checking and model listing on top of
+the existing `GenericChatClient` HTTP logic. The `vllm` Python package is NOT required on
+the client side — we speak to it over HTTP. The `[vllm]` optional extra is reserved for
+future use if we need to manage a vLLM server process programmatically.
+
+**Consequences:**
+- Three-way backend selection at startup: in-process -> Ollama -> vLLM (profile-dependent).
+- `concierge doctor` shows vLLM health alongside Ollama health.
+- Parallel task forces on medium+ profiles are now genuinely concurrent at the LLM layer,
+  not serialised through Ollama.
+
+---
+
+## ADR-016: Distribution via Rust thin launcher; Python application core unchanged
+
+**Status:** Accepted
+**Date:** 2026-02-26
+
+**Context:** PyPI alone is the wrong distribution channel for the target user base. A user who
+"just downloads and runs" needs a single executable that works without Python, pip, or any
+package manager. However, replacing Python with Rust for the application code would be
+counterproductive: the system is I/O-bound (waiting on LLM inference, network calls, file I/O),
+not CPU-bound. Rewriting orchestration, routing, and tool dispatch in Rust would save
+microseconds in a system where LLM calls take seconds. The only places where raw compute
+matters (token generation) are already handled by Rust internally (mistral.rs, Ollama's
+llama.cpp backend, vLLM's CUDA kernels).
+
+**Decision:**
+- The Python application (`src/agentic_concierge/`) remains Python — no Rust in orchestration,
+  routing, HTTP clients, config, or MCP management.
+- A Rust thin launcher binary (~5 MB) is added in Phase 13. It handles:
+  - Platform detection and first-run bootstrap
+  - Managed Python venv setup (similar to how `uv` and `rye` work)
+  - Self-update
+  - Launching the Python application via exec
+- Distribution channels (Phase 13): GitHub Releases binary, Homebrew tap, one-liner install
+  script. PyPI and Docker are kept for developers and operators respectively.
+- In-process inference (`mistralrs` PyO3 wheel) is a narrow Rust boundary — a Python-callable
+  wheel, not application logic.
+
+**Why Rust for the launcher (not Go or Python/PyInstaller):**
+- Static binary: no runtime dependencies, no Python needed on the target machine.
+- Cross-compiles to x86_64-linux, aarch64-linux, x86_64-apple-darwin,
+  aarch64-apple-darwin (M-series), x86_64-pc-windows-msvc from one CI job.
+- Consistent with mistral.rs (Phase 10): single Rust toolchain for all native components.
+- PyInstaller produces 150-300 MB bundles with 2-3s startup; Rust binary is ~5 MB, <50ms startup.
+
+**Consequences:**
+- Phase 10-12 distribute via PyPI and Docker only (existing channels).
+- Phase 13 adds the `launcher/` Rust crate to the repo and CI jobs for cross-compilation.
+- `pyproject.toml` and Python packaging are unchanged.
+- Developers continue to work with pure Python (`pip install -e ".[dev]"`).
