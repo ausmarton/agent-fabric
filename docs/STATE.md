@@ -2,11 +2,32 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-26. Fast CI: **599 pass** (Phases 1–12 complete).
+**Last updated:** 2026-02-26. Fast CI: **599 pass** (Python tests unchanged; Phases 1–13 complete).
 
 ---
 
-## Current phase: **Phase 12 complete**
+## Current phase: **Phase 13 complete**
+
+### Phase 13 checklist — **complete**
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| P13-1 | `launcher/Cargo.toml` | Done | reqwest/serde/dirs/semver/anyhow/thiserror; musl-compatible |
+| P13-2 | `launcher/src/config.rs` | Done | `LauncherConfig`; env overrides; 5 tests |
+| P13-3 | `launcher/src/exec.rs` | Done | `exec_python_concierge()` via `execv`; 1 test |
+| P13-4 | `launcher/src/setup.rs` | Done | `ensure_environment`, `upgrade_package`, `installed_version`; 3 tests |
+| P13-5 | `launcher/src/update.rs` | Done | `check_latest_release` (network-silent), `apply_update` (atomic rename), `is_newer`; 4 tests |
+| P13-6 | `launcher/src/main.rs` | Done | Orchestration only; `--self-update` flag; passive hint |
+| P13-7 | `.github/workflows/build-launcher.yml` | Done | CI: test + clippy + fmt; cross-compile x86_64/aarch64 musl |
+| P13-8 | `release.yml` + `install.sh` | Done | Launcher binaries attached to GitHub Release; POSIX one-liner installer |
+| P13-9 | Docs | Done | README, CHANGELOG, BACKLOG, STATE, ARCHITECTURE, DECISIONS |
+
+**Rust tests:** `cargo test --manifest-path launcher/Cargo.toml` → **13 pass**
+**Python fast CI:** `pytest tests/ -k "not real_llm and not real_mcp and not podman" -q` → **599 pass** (unchanged)
+
+---
+
+## Current phase: **Phase 12 complete** (superseded by Phase 13)
 
 Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are all done.
 

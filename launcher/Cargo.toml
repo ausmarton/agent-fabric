@@ -1,0 +1,23 @@
+[package]
+name = "concierge-launcher"
+version = "0.1.0"
+edition = "2021"
+description = "Rust thin launcher for agentic-concierge"
+license = "MIT"
+
+[[bin]]
+name = "concierge"
+path = "src/main.rs"
+
+[dependencies]
+# Blocking HTTP — no async runtime; rustls-tls (not native-tls) for musl static linking
+reqwest    = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs       = "5"       # XDG Base Dir: ~/.local/share, ~/.local/bin
+semver     = "1"       # version comparison
+anyhow     = "1"       # top-level error handling
+thiserror  = "1"       # typed module errors
+
+[dev-dependencies]
+tempfile = "3"

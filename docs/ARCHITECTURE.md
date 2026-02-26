@@ -521,3 +521,72 @@ find_resumable_runs(workspace_root):
 **CLI commands added:**
 - `concierge resume <run-id>` — loads checkpoint, resumes run, streams events
 - `concierge logs list` — now shows `(resumable)` next to interrupted run IDs
+
+---
+
+## 9. Phase 13: Rust thin launcher
+
+The `launcher/` Rust crate adds a static ~5 MB binary that bootstraps the Python environment and
+then exec-replaces itself with the Python `concierge` binary. No Python or pip required to get started.
+
+### Launcher flow
+
+```
+User runs: concierge [args]
+    │
+    ├── parse_launcher_args() → self_update?
+    │
+    ├── launcher_config()
+    │     CONCIERGE_DATA_DIR   → data_dir (default: ~/.local/share/agentic-concierge)
+    │     CONCIERGE_NO_UPDATE_CHECK=1 → skip update hint
+    │     CONCIERGE_EXTRA      → pip extras (e.g. "mcp,otel")
+    │
+    ├── [if --self-update]  check_latest_release → apply_update → upgrade_package → exit 0
+    │
+    ├── [else if !skip_update]  check_latest_release → is_newer → print hint (never blocks)
+    │
+    ├── ensure_environment(config)
+    │     Fast path: venv/bin/concierge exists? → return path.
+    │     First-time:
+    │       try_system_python() → >= 3.10 in PATH?
+    │       If None: ensure_uv() → download uv from GitHub, extract with system tar
+    │       python3 -m venv  OR  uv venv --python 3.12
+    │       pip install --upgrade agentic-concierge[{extra}]
+    │       write installed_version
+    │       return venv/bin/concierge
+    │
+    └── exec_python_concierge(bin)
+          exec() replaces process image — Python inherits launcher PID, correct signals
+```
+
+### Module dependency graph
+
+```
+main.rs → config.rs        (data_dir, paths, env constants)
+       → update.rs → config.rs   (GitHub Releases API; atomic self-update)
+       → setup.rs  → config.rs   (Python/venv/pip; most replaceable module)
+       → exec.rs   (no deps)     (execv the Python concierge binary)
+```
+
+`main.rs` is the **only** file that imports from other modules. No module imports another.
+This enforces the single-public-API-surface rule: each module can be replaced independently
+in future phases without touching `main.rs`.
+
+### Future evolution paths
+
+| Module | Future replacement |
+|--------|--------------------|
+| `setup.rs` | Phase 14+: native Rust Python environment manager (replace subprocess calls) |
+| `update.rs` | Phase 14+: signed binary verification before apply |
+| `exec.rs`   | Phase 14+: macOS / Windows support (replace `execv` with platform-specific) |
+| `config.rs` | Stable; env-var contract unlikely to change |
+
+### Distribution
+
+| Channel | Who | How |
+|---------|-----|-----|
+| GitHub Releases binary | End users (Linux) | `install.sh` one-liner or direct download |
+| PyPI wheel | Developers, CI | `pip install agentic-concierge` |
+| Docker (GHCR) | Operators | `docker compose up` |
+
+The launcher binary is a **thin distribution shim only** — all application logic stays in Python.

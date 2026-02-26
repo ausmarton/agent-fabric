@@ -11,6 +11,30 @@ permissions:
   id-token: write   # OIDC token for PyPI trusted publishing
 
 jobs:
+  build-launcher-release:
+    name: Cross-compile launcher (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+      - name: Cross-compile
+        run: cd launcher && cross build --release --target ${{ matrix.target }}
+      - name: Rename binary with target suffix
+        run: |
+          cp launcher/target/${{ matrix.target }}/release/concierge \
+             concierge-${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-${{ matrix.target }}
+          path: concierge-${{ matrix.target }}
+
   build:
     name: Build distribution
     runs-on: ubuntu-latest
@@ -100,7 +124,8 @@ jobs:
     # Run when build succeeds and Docker push succeeds.
     # PyPI publish is best-effort (needs one-time trusted-publisher setup on pypi.org);
     # a PyPI failure should not block the GitHub Release from being created.
-    needs: [build, publish-pypi, publish-docker]
+    # build-launcher-release failure also does not block the Python/Docker release.
+    needs: [build, publish-pypi, publish-docker, build-launcher-release]
     if: always() && needs.build.result == 'success' && needs.publish-docker.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -112,6 +137,13 @@ jobs:
         with:
           name: dist
           path: dist/
+      - name: Download launcher binaries
+        if: needs.build-launcher-release.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: launcher-*
+          path: launcher-bins/
+          merge-multiple: true
       - name: Extract changelog for this version
         run: |
           VERSION="${{ needs.build.outputs.version }}"
@@ -121,7 +153,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          LAUNCHER_ASSETS=""
+          for f in launcher-bins/concierge-*-unknown-linux-musl; do
+            [ -f "$f" ] && LAUNCHER_ASSETS="$LAUNCHER_ASSETS $f"
+          done
           gh release create "${{ github.ref_name }}" \
             --title "agentic-concierge ${{ github.ref_name }}" \
             --notes-file release_notes.md \
-            dist/*
+            dist/* $LAUNCHER_ASSETS

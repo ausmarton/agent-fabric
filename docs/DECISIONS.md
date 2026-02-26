@@ -493,7 +493,13 @@ llama.cpp backend, vLLM's CUDA kernels).
 - PyInstaller produces 150-300 MB bundles with 2-3s startup; Rust binary is ~5 MB, <50ms startup.
 
 **Consequences:**
-- Phase 10-12 distribute via PyPI and Docker only (existing channels).
-- Phase 13 adds the `launcher/` Rust crate to the repo and CI jobs for cross-compilation.
+- Phases 10–12 distributed via PyPI and Docker only (existing channels).
+- Phase 13 added the `launcher/` Rust crate to the repo, CI jobs for cross-compilation, and
+  `install.sh` one-liner. Binaries attached to GitHub Releases as
+  `concierge-x86_64-unknown-linux-musl` and `concierge-aarch64-unknown-linux-musl`.
 - `pyproject.toml` and Python packaging are unchanged.
 - Developers continue to work with pure Python (`pip install -e ".[dev]"`).
+- Module boundaries (`config.rs` / `setup.rs` / `update.rs` / `exec.rs`) are enforced by the
+  rule that only `main.rs` may import from other modules. This enables Phase 14+ to replace
+  any single module (e.g. swap `setup.rs` for a native Rust Python manager) without touching
+  the others.

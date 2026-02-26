@@ -48,6 +48,9 @@ fabric_workspace/
 *.dist-info/
 wheels/
 
+# Rust build artifacts
+launcher/target/
+
 # Secrets (never commit)
 .env
 .env.local

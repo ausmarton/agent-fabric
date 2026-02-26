@@ -29,7 +29,37 @@ A **quality-first agent orchestration framework** for local LLM inference.
 
 ## Installation
 
-### From PyPI (recommended)
+### Quick install — Linux binary (recommended for end users)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ausmarton/agentic-concierge/main/install.sh | sh
+```
+
+Downloads a static musl binary (~5 MB) to `~/.local/bin/concierge`.
+Supports **x86_64** and **aarch64** Linux. No Python, pip, or package manager required.
+
+On first run the launcher:
+1. Detects or downloads Python 3.12 via `uv`
+2. Creates a managed venv at `~/.local/share/agentic-concierge/venv/`
+3. Installs `agentic-concierge` from PyPI
+4. Exec-replaces itself with the Python binary (correct PID, transparent signal forwarding)
+
+**Keep the launcher up to date:**
+
+```bash
+concierge --self-update
+```
+
+**Install to a custom directory** (e.g. for system-wide install):
+
+```bash
+CONCIERGE_INSTALL_DIR=/usr/local/bin \
+  curl -fsSL https://raw.githubusercontent.com/ausmarton/agentic-concierge/main/install.sh | sh
+```
+
+---
+
+### From PyPI (developers / non-Linux)
 
 ```bash
 pip install agentic-concierge

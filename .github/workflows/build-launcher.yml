@@ -1,0 +1,52 @@
+name: Build Launcher
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Rust test + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            launcher/target
+          key: cargo-${{ hashFiles('launcher/Cargo.toml') }}
+      - run: cargo test --manifest-path launcher/Cargo.toml
+      - run: cargo clippy --manifest-path launcher/Cargo.toml -- -D warnings
+      - run: cargo fmt --manifest-path launcher/Cargo.toml --check
+
+  build-musl:
+    name: Cross-compile (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+      - name: Cross-compile
+        run: cd launcher && cross build --release --target ${{ matrix.target }}
+      - name: Sanity-check binary size (< 15 MB)
+        run: |
+          size=$(stat -c%s launcher/target/${{ matrix.target }}/release/concierge)
+          [ "$size" -lt 15728640 ] || (echo "Binary too large: $size bytes"; exit 1)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: concierge-${{ matrix.target }}
+          path: launcher/target/${{ matrix.target }}/release/concierge
+          retention-days: 7

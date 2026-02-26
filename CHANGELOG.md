@@ -9,6 +9,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+**Phase 13 — Rust Thin Launcher**
+- `launcher/` Rust crate (`concierge-launcher v0.1.0`): static musl binary for Linux x86_64 and aarch64.
+- `launcher/src/config.rs`: `LauncherConfig` struct; `CONCIERGE_DATA_DIR` env override; `CONCIERGE_NO_UPDATE_CHECK` skip-update flag; `CONCIERGE_EXTRA` pip-extras passthrough.
+- `launcher/src/setup.rs`: `ensure_environment()` — system-Python detection (>=3.10), uv download fallback, venv creation, pip install; fast-path for already-installed venv. `upgrade_package()`, `installed_version()`.
+- `launcher/src/update.rs`: `check_latest_release()` — GitHub Releases API; silently returns `None` on any network failure. `apply_update()` — atomic binary replacement (`rename`). `is_newer()` — semver comparison.
+- `launcher/src/exec.rs`: `exec_python_concierge()` — `execv()` replaces process image; strips `--self-update` from forwarded args; correct PID and signal forwarding, no zombie launcher.
+- `launcher/src/main.rs`: orchestration only; `--self-update` flag applies update + upgrades Python package then exits; passive update-hint on every run (advisory, never blocks).
+- `launcher/rust-toolchain.toml`: pins `stable` channel; requires `clippy` and `rustfmt` components.
+- `.github/workflows/build-launcher.yml`: CI on every push — `cargo test`, `cargo clippy -D warnings`, `cargo fmt --check`; cross-compile matrix for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` via `cross`; binary size gate (< 15 MB); uploads artifacts.
+- `release.yml` updated: `build-launcher-release` job cross-compiles both musl targets; `release` job attaches `concierge-x86_64-unknown-linux-musl` and `concierge-aarch64-unknown-linux-musl` to the GitHub Release (launcher failure does not block Python/Docker release).
+- `install.sh`: POSIX one-liner; `curl | sh`; detects arch, downloads from GitHub Releases, atomic `mv` from tempfile; `CONCIERGE_INSTALL_DIR` override; PATH hint if dir not in PATH.
+
 ---
 
 ## [0.3.0] — 2026-02-26

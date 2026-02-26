@@ -14,7 +14,7 @@ referenced source files, and [DECISIONS.md](DECISIONS.md).
 **How to resume after an interruption**
 1. Read [STATE.md](STATE.md) — confirms current phase and last verified state.
 2. Read this file — find the first non-done item; that is what to work on.
-3. Run `pytest tests/ -k "not real_llm and not verify and not real_mcp"` — confirm **368 pass** before touching code.
+3. Run `pytest tests/ -k "not real_llm and not real_mcp and not podman" -q` — confirm **599 pass** before touching code.
 4. Start the item; mark it IN PROGRESS here and in STATE.md.
 
 ---
@@ -754,6 +754,39 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 | Un-skip and fix `test_resolve_llm_filters_embedding_models` | 2026-02-24 | Wrong patch target fixed; test now passes |
 | 5 new tests (packs, prompt content) | 2026-02-24 | `finish_task` in definitions, OpenAI format validation, prompt content checks |
 | All 4 real-LLM E2E tests passing | 2026-02-24 | engineering, research, API POST, verify_working_real.py — all pass against Ollama 0.12.11 with llama3.1:8b |
+
+---
+
+## Phase 13 — Rust Thin Launcher
+
+**Status: COMPLETE — 2026-02-26**
+
+### P13-1: `launcher/Cargo.toml` — DONE
+Rust crate manifest. Deps: `reqwest` (blocking + rustls-tls for musl), `serde`, `dirs`, `semver`, `anyhow`, `thiserror`. Dev: `tempfile`.
+
+### P13-2: `launcher/src/config.rs` — DONE
+`LauncherConfig` struct; `launcher_config()` constructor. Env overrides: `CONCIERGE_DATA_DIR`, `CONCIERGE_NO_UPDATE_CHECK`, `CONCIERGE_EXTRA`. 5 unit tests.
+
+### P13-3: `launcher/src/exec.rs` — DONE
+`exec_python_concierge()` — `execv()` replaces process image; strips `--self-update` from forwarded args. 1 unit test.
+
+### P13-4: `launcher/src/setup.rs` — DONE
+`ensure_environment()`, `upgrade_package()`, `installed_version()`. System-Python detection, uv download via GitHub Releases + system `tar`, venv creation, pip install. Error types: `NoPython`, `VenvCreation`, `PackageInstall`, `UvNotExecutable`. 3 unit tests.
+
+### P13-5: `launcher/src/update.rs` — DONE
+`check_latest_release()` (network errors silently swallowed), `apply_update()` (atomic rename), `is_newer()` (semver). `ARCH_STR` const. 4 unit tests.
+
+### P13-6: `launcher/src/main.rs` — DONE
+Orchestration only. `parse_launcher_args()` (no clap). `main()` flow: self-update → passive hint → `ensure_environment` → `exec`. Module dependency graph enforced.
+
+### P13-7: `.github/workflows/build-launcher.yml` — DONE
+CI: `cargo test` + `cargo clippy -D warnings` + `cargo fmt --check`. Cross-compile matrix (x86_64/aarch64 musl) via `cross`. Binary size gate < 15 MB. Artifact upload.
+
+### P13-8: `release.yml` + `install.sh` — DONE
+`build-launcher-release` job added to release workflow; launcher binaries attached to GitHub Release. `install.sh`: POSIX one-liner; detects arch; atomic install to `~/.local/bin`.
+
+### P13-9: Docs — DONE
+README (Quick install section), CHANGELOG (Unreleased), BACKLOG (this section), STATE.md, ARCHITECTURE.md (Section 9), DECISIONS.md (ADR-016 consequences updated).
 
 ---
 
