@@ -143,12 +143,17 @@ class CloudFallbackConfig(BaseModel):
 
 
 class RunIndexConfig(BaseModel):
-    """Configuration for the cross-run index (P6-1 keyword search; P7-1 semantic search).
+    """Configuration for the cross-run index (P6-1 keyword search; P7-1 semantic search;
+    P11-6 ChromaDB vector store backend).
 
     When ``embedding_model`` is set, each run is embedded at write time and
     ``semantic_search_index()`` ranks by cosine similarity instead of substring
     matching.  When ``None`` (default), the index uses keyword/substring search
     with no extra dependencies.
+
+    Set ``provider="chromadb"`` to store and search embeddings via ChromaDB
+    (requires ``pip install 'agentic-concierge[embed]'``).  The default
+    ``provider="jsonl"`` uses the existing JSONL + cosine scan path.
     """
 
     embedding_model: Optional[str] = Field(
@@ -167,6 +172,26 @@ class RunIndexConfig(BaseModel):
             "When None, derived from the primary (fast/quality) model's base_url by "
             "stripping any /v1 suffix. Usually does not need to be set explicitly."
         ),
+    )
+    provider: str = Field(
+        "jsonl",
+        description=(
+            "'jsonl' (default): JSONL flat file with optional in-process cosine scan. "
+            "'chromadb': persist embeddings in ChromaDB for scalable ANN search "
+            "(requires pip install 'agentic-concierge[embed]')."
+        ),
+    )
+    chromadb_path: str = Field(
+        "",
+        description=(
+            "ChromaDB storage directory path. "
+            "Empty string (default) uses the OS-appropriate platformdirs "
+            "user_data_path('agentic-concierge')/chromadb directory."
+        ),
+    )
+    chromadb_collection: str = Field(
+        "agentic_concierge_runs",
+        description="ChromaDB collection name for the run index.",
     )
 
 

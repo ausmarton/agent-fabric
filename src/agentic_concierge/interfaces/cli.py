@@ -402,6 +402,43 @@ def doctor(
         backend_table.add_row(name, status_str, models_str, hint)
     console.print(backend_table)
 
+    # Tools & extras: browser (Playwright) and vector store (ChromaDB)
+    import importlib.util as _ilu
+    extras_table = Table(show_header=True, header_style="bold")
+    extras_table.add_column("Extra")
+    extras_table.add_column("Status")
+    extras_table.add_column("Install hint", overflow="fold")
+
+    # Browser (Playwright)
+    if _ilu.find_spec("playwright") is not None:
+        try:
+            import playwright as _pw
+            pw_ver = getattr(_pw, "__version__", "installed")
+        except Exception:
+            pw_ver = "installed"
+        browser_status = f"[green]✓ available (playwright {pw_ver})[/green]"
+        browser_hint = "—"
+    else:
+        browser_status = "[dim]✗ not installed[/dim]"
+        browser_hint = "pip install agentic-concierge[browser]"
+    extras_table.add_row("browser", browser_status, browser_hint)
+
+    # ChromaDB
+    if _ilu.find_spec("chromadb") is not None:
+        try:
+            import chromadb as _chromadb
+            chroma_ver = getattr(_chromadb, "__version__", "installed")
+        except Exception:
+            chroma_ver = "installed"
+        chroma_status = f"[green]✓ available (chromadb {chroma_ver})[/green]"
+        chroma_hint = "—"
+    else:
+        chroma_status = "[dim]✗ not installed[/dim]"
+        chroma_hint = "pip install agentic-concierge[embed]"
+    extras_table.add_row("chromadb", chroma_status, chroma_hint)
+
+    console.print(extras_table)
+
 
 @app.command("bootstrap")
 def bootstrap_cmd(
@@ -463,6 +500,7 @@ def logs_search(
                 embedding_model=ri_cfg.embedding_model,
                 embedding_base_url=embed_base,
                 top_k=limit,
+                run_index_config=ri_cfg,
             )
         )
     else:

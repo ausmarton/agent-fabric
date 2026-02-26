@@ -58,6 +58,7 @@ PROFILE_FEATURES: dict[ProfileTier, frozenset[Feature]] = {
         Feature.OLLAMA,
         Feature.CLOUD,
         Feature.MCP,
+        Feature.BROWSER,
     }),
     ProfileTier.MEDIUM: frozenset({
         Feature.INPROCESS,
@@ -66,6 +67,7 @@ PROFILE_FEATURES: dict[ProfileTier, frozenset[Feature]] = {
         Feature.CLOUD,
         Feature.MCP,
         Feature.EMBEDDING,
+        Feature.BROWSER,
     }),
     ProfileTier.LARGE: frozenset({
         Feature.INPROCESS,
@@ -75,6 +77,7 @@ PROFILE_FEATURES: dict[ProfileTier, frozenset[Feature]] = {
         Feature.MCP,
         Feature.EMBEDDING,
         Feature.CONTAINER,
+        Feature.BROWSER,
     }),
     ProfileTier.SERVER: frozenset({
         Feature.INPROCESS,
@@ -84,6 +87,7 @@ PROFILE_FEATURES: dict[ProfileTier, frozenset[Feature]] = {
         Feature.EMBEDDING,
         Feature.CONTAINER,
         Feature.TELEMETRY,
+        Feature.BROWSER,
     }),
 }
 

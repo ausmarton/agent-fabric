@@ -25,9 +25,24 @@ import logging
 import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# ChromaRunIndex instance cache — avoids creating a new PersistentClient per
+# call.  Keyed on (path, collection_name); cleared only at process exit.
+# ---------------------------------------------------------------------------
+_chroma_index_cache: dict[tuple[str, str], Any] = {}
+
+
+def _get_chroma_index(path: str, collection_name: str) -> Any:
+    """Return a cached ``ChromaRunIndex`` for *path* / *collection_name*."""
+    key = (path, collection_name)
+    if key not in _chroma_index_cache:
+        from agentic_concierge.infrastructure.workspace.run_index_chroma import ChromaRunIndex
+        _chroma_index_cache[key] = ChromaRunIndex(path, collection_name)
+    return _chroma_index_cache[key]
 
 
 @dataclass
@@ -48,8 +63,12 @@ class RunIndexEntry:
     embedding: Optional[List[float]] = field(default=None)
 
 
-def append_to_index(workspace_root: str, entry: RunIndexEntry) -> None:
-    """Append *entry* to the run index JSONL file.
+def append_to_index(
+    workspace_root: str,
+    entry: RunIndexEntry,
+    run_index_config: Optional[Any] = None,
+) -> None:
+    """Append *entry* to the run index JSONL file (always) and optionally ChromaDB.
 
     Creates the index file (and parent directories) if they don't exist.
     Uses line-level appends — safe for single-writer local CLI usage.
@@ -59,6 +78,15 @@ def append_to_index(workspace_root: str, entry: RunIndexEntry) -> None:
     When ``entry.embedding`` is not None the embedding vector is included
     in the serialised record so that ``semantic_search_index()`` can later
     rank entries without re-embedding them.
+
+    When ``run_index_config.provider == "chromadb"`` and ``entry.embedding`` is
+    not None, the entry is also upserted into ChromaDB.  ChromaDB failures are
+    logged but do not prevent the JSONL write from succeeding.
+
+    Args:
+        workspace_root: Workspace root directory (JSONL lives here).
+        entry: Run index entry to persist.
+        run_index_config: Optional ``RunIndexConfig``; if None, JSONL only.
     """
     index_path = Path(workspace_root) / "run_index.jsonl"
     index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,6 +94,32 @@ def append_to_index(workspace_root: str, entry: RunIndexEntry) -> None:
     with open(index_path, "a", encoding="utf-8") as f:
         f.write(line + "\n")
     logger.debug("RunIndex: appended run %s to %s", entry.run_id, index_path)
+
+    # ChromaDB dispatch: only when provider is "chromadb" and embedding is present.
+    if (
+        run_index_config is not None
+        and getattr(run_index_config, "provider", "jsonl") == "chromadb"
+    ):
+        if not entry.embedding:
+            logger.debug(
+                "RunIndex: provider=chromadb but run %s has no embedding; "
+                "ChromaDB write skipped.  Set RunIndexConfig.embedding_model to enable.",
+                entry.run_id,
+            )
+        else:
+            try:
+                chroma_path = _resolve_chromadb_path(run_index_config)
+                idx = _get_chroma_index(chroma_path, run_index_config.chromadb_collection)
+                idx.add(entry, entry.embedding)
+                logger.debug(
+                    "RunIndex: also upserted run %s into ChromaDB at %s",
+                    entry.run_id, chroma_path,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "ChromaDB append failed for run %s (%s); JSONL record was written",
+                    entry.run_id, exc,
+                )
 
 
 def search_index(
@@ -160,10 +214,16 @@ async def semantic_search_index(
     embedding_model: str,
     embedding_base_url: str,
     top_k: int = 10,
+    run_index_config: Optional[Any] = None,
 ) -> List[RunIndexEntry]:
     """Return top-k entries ranked by cosine similarity to *query*.
 
-    Algorithm:
+    When ``run_index_config.provider == "chromadb"``, embeds the query and
+    delegates ANN search to ``ChromaRunIndex``.  On any ChromaDB failure falls
+    back to JSONL keyword search.
+
+    Otherwise (default JSONL path):
+
     1. Load all entries from the JSONL index.
     2. Filter to those that have an ``embedding`` field (set at write time when
        ``RunIndexConfig.embedding_model`` is configured).
@@ -180,11 +240,36 @@ async def semantic_search_index(
         embedding_model: Ollama model name to use for embedding.
         embedding_base_url: Ollama base URL passed to ``embed_text()``.
         top_k: Maximum number of results to return.
+        run_index_config: Optional ``RunIndexConfig``; when ``provider="chromadb"``
+            uses ChromaDB instead of the JSONL cosine scan.
 
     Returns:
         List of ``RunIndexEntry`` sorted by descending similarity (or keyword
         relevance as fallback).
     """
+    # ChromaDB path.
+    if (
+        run_index_config is not None
+        and getattr(run_index_config, "provider", "jsonl") == "chromadb"
+    ):
+        if not embedding_model:
+            logger.warning(
+                "semantic_search_index: provider=chromadb but embedding_model is not set; "
+                "falling back to keyword search.  Set RunIndexConfig.embedding_model to enable.",
+            )
+            return search_index(workspace_root, query, limit=top_k)
+        try:
+            query_embedding = await embed_text(query, embedding_model, embedding_base_url)
+            chroma_path = _resolve_chromadb_path(run_index_config)
+            idx = _get_chroma_index(chroma_path, run_index_config.chromadb_collection)
+            return idx.search(query_embedding, top_k=top_k)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "semantic_search_index: ChromaDB search failed (%s); falling back to JSONL keyword search",
+                exc,
+            )
+            return search_index(workspace_root, query, limit=top_k)
+
     index_path = Path(workspace_root) / "run_index.jsonl"
     if not index_path.is_file():
         return []
@@ -232,6 +317,20 @@ async def semantic_search_index(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _resolve_chromadb_path(run_index_config: Any) -> str:
+    """Return the ChromaDB storage path, resolving an empty config value to platformdirs default."""
+    path = getattr(run_index_config, "chromadb_path", "")
+    if path:
+        return path
+    try:
+        from platformdirs import user_data_path  # type: ignore[import]
+        import os
+        return str(user_data_path("agentic-concierge") / "chromadb")
+    except Exception:
+        import os
+        return os.path.join(os.path.expanduser("~"), ".agentic-concierge", "chromadb")
+
 
 def _entry_from_dict(data: dict) -> RunIndexEntry:
     """Construct a RunIndexEntry from a raw dict, tolerating missing/extra keys."""

@@ -332,7 +332,7 @@ async def execute_task(
                     run_id.value, exc,
                 )
 
-        append_to_index(workspace_root, entry)
+        append_to_index(workspace_root, entry, run_index_config=config.run_index)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to append to run index: %s", exc)
 

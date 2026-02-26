@@ -302,3 +302,34 @@ def test_config_resource_limits_from_file(monkeypatch):
     finally:
         from pathlib import Path
         Path(path).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# P11-5: RunIndexConfig new fields (provider, chromadb_path, chromadb_collection)
+# ---------------------------------------------------------------------------
+
+def test_run_index_config_provider_defaults_to_jsonl():
+    from agentic_concierge.config.schema import RunIndexConfig
+    cfg = RunIndexConfig()
+    assert cfg.provider == "jsonl"
+
+
+def test_run_index_config_chromadb_provider_roundtrip():
+    from agentic_concierge.config.schema import RunIndexConfig
+    cfg = RunIndexConfig(provider="chromadb")
+    d = cfg.model_dump()
+    assert d["provider"] == "chromadb"
+    cfg2 = RunIndexConfig(**d)
+    assert cfg2.provider == "chromadb"
+
+
+def test_run_index_config_chromadb_path_defaults_empty():
+    from agentic_concierge.config.schema import RunIndexConfig
+    cfg = RunIndexConfig()
+    assert cfg.chromadb_path == ""
+
+
+def test_run_index_config_chromadb_collection_default():
+    from agentic_concierge.config.schema import RunIndexConfig
+    cfg = RunIndexConfig()
+    assert cfg.chromadb_collection == "agentic_concierge_runs"

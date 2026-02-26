@@ -2,11 +2,11 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-26. Fast CI: **495 pass** (Phases 1–10 complete).
+**Last updated:** 2026-02-26. Fast CI: **531 pass** (Phases 1–11 complete).
 
 ---
 
-## Current phase: **Phase 10 complete**
+## Current phase: **Phase 11 complete**
 
 Phases 6, 7, and 8 are all **complete**. Phase 8 items (P8-1 through P8-4) are all done.
 
@@ -161,13 +161,28 @@ All Phase 1 functional requirements (FR1–FR6 in REQUIREMENTS.md) have automate
 | P10-13 | `pyproject.toml` dep/extras | Done | `psutil>=5.9`, `platformdirs>=4.0` core; `nano`, `embed`, `browser`, `all` extras |
 | P10-14 | Tests | Done | 7 new test files, 93 new tests; total fast CI: **495 pass** |
 
+## Phase 11 checklist — **complete**
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| P11-1 | `infrastructure/tools/browser_tool.py` | Done | `BrowserTool`, `is_available()`; 6 async tool methods; 30s timeout; URL validation; workspace screenshot |
+| P11-2 | `Feature.BROWSER` in `PROFILE_FEATURES` | Done | SMALL/MEDIUM/LARGE/SERVER; NANO excluded |
+| P11-3 | `BaseSpecialistPack` browser integration | Done | `feature_set`, `workspace_path`, `network_allowed` params; `aopen()`/`aclose()` lifecycle; `_register_browser_tools()` |
+| P11-4 | Registry passes `FeatureSet` to packs | Done | `ConfigSpecialistRegistry.get_pack()` loads detected tier, builds FeatureSet, sets `pack._feature_set` |
+| P11-5 | `RunIndexConfig` additions for ChromaDB | Done | `provider`, `chromadb_path`, `chromadb_collection` fields |
+| P11-6 | `ChromaRunIndex` — ChromaDB vector store | Done | `infrastructure/workspace/run_index_chroma.py`; lazy import; `add()`/`search()` |
+| P11-7 | Dispatch in `run_index.py` | Done | `append_to_index`/`semantic_search_index` accept `run_index_config`; ChromaDB dispatch with JSONL fallback |
+| P11-8 | `concierge doctor` extras table | Done | Browser (playwright) and ChromaDB rows via `importlib.util.find_spec` |
+| P11-9 | Tests | Done | `test_browser_tool.py` (13), `test_run_index_chroma.py` (10); +4 test_config; +4 test_features; +2 test_doctor_cli; total **531 pass** |
+| P11-10 | `MCPAugmentedPack` aopen/aclose fix | Done | Now calls `inner.aopen()`/`inner.aclose()` so browser tools work when MCP-wrapped |
+
 ## Next steps (what to do when resuming)
 
 **The backlog is the canonical source for what to work on next.**
 
 1. Read [BACKLOG.md](BACKLOG.md) — find the first non-done item; that is what to work on.
-2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **495 pass** before touching code.
-3. Phase 10 is complete — see BACKLOG.md for Phase 11 planning or add new items.
+2. Run `pytest tests/ -k “not real_llm and not verify and not real_mcp”` — confirm **531 pass** before touching code.
+3. Phase 11 is complete — see BACKLOG.md for Phase 12 planning or add new items.
 4. See [DECISIONS.md](DECISIONS.md) for rationale behind key architectural choices.
 
 ---

@@ -145,3 +145,36 @@ def test_bootstrap_command_runs(tmp_path):
 def test_bootstrap_invalid_profile_exits_nonzero():
     result = runner.invoke(app, ["bootstrap", "--profile", "ultraextreme"])
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# P11-8: doctor shows browser and chromadb rows
+# ---------------------------------------------------------------------------
+
+def _invoke_doctor():
+    """Helper: invoke doctor with all external calls mocked."""
+    with (
+        patch("agentic_concierge.bootstrap.system_probe.probe_system", return_value=_sample_probe()),
+        patch("agentic_concierge.bootstrap.detected.load_detected", return_value=_sample_profile()),
+        patch(
+            "agentic_concierge.bootstrap.backend_manager.BackendManager.probe_all",
+            return_value=_healthy_backends(),
+        ),
+        patch("agentic_concierge.bootstrap.system_probe._check_internet", return_value=True),
+        patch("agentic_concierge.bootstrap.system_probe._check_ollama", return_value=True),
+        patch("agentic_concierge.bootstrap.system_probe._check_vllm", return_value=False),
+        patch("subprocess.run", side_effect=FileNotFoundError),
+    ):
+        return runner.invoke(app, ["doctor"])
+
+
+def test_doctor_shows_browser_row():
+    result = _invoke_doctor()
+    assert result.exit_code == 0
+    assert "browser" in result.output
+
+
+def test_doctor_shows_chromadb_row():
+    result = _invoke_doctor()
+    assert result.exit_code == 0
+    assert "chromadb" in result.output

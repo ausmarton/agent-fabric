@@ -40,11 +40,13 @@ class MCPAugmentedPack:
     # ------------------------------------------------------------------
 
     async def aopen(self) -> None:
-        """Connect all MCP sessions and populate MCP tool definitions.
+        """Open inner pack, then connect all MCP sessions and populate MCP tool definitions.
 
-        Raises if any session fails to connect (the remaining sessions are not
-        started — the caller should call ``aclose()`` to clean up).
+        The inner pack's ``aopen()`` is called first so that base-pack lifecycle
+        hooks (e.g. browser tool initialisation) run before the MCP sessions are
+        connected.  Raises if any session fails to connect.
         """
+        await self._inner.aopen()
         await asyncio.gather(*[s.connect() for s in self._sessions])
 
         all_tools: List[Dict[str, Any]] = []
@@ -58,7 +60,11 @@ class MCPAugmentedPack:
         )
 
     async def aclose(self) -> None:
-        """Disconnect all MCP sessions; individual failures are ignored."""
+        """Disconnect all MCP sessions then close the inner pack.
+
+        Individual MCP session failures are swallowed so a single broken server
+        never prevents cleanup.  The inner pack's ``aclose()`` is always called.
+        """
         results = await asyncio.gather(
             *[s.disconnect() for s in self._sessions],
             return_exceptions=True,
@@ -69,6 +75,10 @@ class MCPAugmentedPack:
                     "MCPAugmentedPack: session %d failed to disconnect: %s",
                     i, result,
                 )
+        try:
+            await self._inner.aclose()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("MCPAugmentedPack: inner pack failed to close: %s", exc)
 
     # ------------------------------------------------------------------
     # SpecialistPack protocol properties (forwarded to inner pack)

@@ -214,4 +214,6 @@ def build_enterprise_research_pack(
         system_prompt=SYSTEM_PROMPT_ENTERPRISE_RESEARCH,
         tools=tools,
         finish_tool_def=_FINISH_TOOL_DEF,
+        workspace_path=workspace_path,
+        network_allowed=network_allowed,
     )

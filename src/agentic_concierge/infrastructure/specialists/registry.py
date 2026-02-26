@@ -18,6 +18,7 @@ from typing import Callable, List
 
 from agentic_concierge.config import ConciergeConfig
 from agentic_concierge.application.ports import SpecialistPack, SpecialistRegistry
+from agentic_concierge.config.features import FeatureSet, ProfileTier
 
 from .engineering import build_engineering_pack
 from .enterprise_research import build_enterprise_research_pack
@@ -66,6 +67,22 @@ class ConfigSpecialistRegistry(SpecialistRegistry):
 
     def __init__(self, config: ConciergeConfig):
         self._config = config
+        self._feature_set = self._load_feature_set()
+
+    def _load_feature_set(self) -> FeatureSet:
+        """Detect the profile tier once and build the feature set.
+
+        Called once in ``__init__`` so ``load_detected()`` is not invoked on
+        every ``get_pack()`` call.  Falls back to ``ProfileTier.SMALL`` when
+        no bootstrap data exists (first-time users).
+        """
+        try:
+            from agentic_concierge.bootstrap.detected import load_detected
+            detected = load_detected()
+            tier = detected.tier if detected is not None else ProfileTier.SMALL
+        except Exception:
+            tier = ProfileTier.SMALL
+        return FeatureSet.from_profile(tier, self._config.features)
 
     def get_pack(
         self,
@@ -92,6 +109,11 @@ class ConfigSpecialistRegistry(SpecialistRegistry):
             )
 
         pack = builder(workspace_path, network_allowed)
+
+        # Attach the feature set via the public API so aopen() can conditionally
+        # register browser tools and other feature-gated extensions.
+        if hasattr(pack, "set_feature_set"):
+            pack.set_feature_set(self._feature_set)
 
         if spec_cfg.mcp_servers:
             try:

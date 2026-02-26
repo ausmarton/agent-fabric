@@ -24,6 +24,12 @@ class _FakeInnerPack:
     finish_required_fields = ["summary"]
     tool_definitions = [{"type": "function", "function": {"name": "shell"}}]
 
+    async def aopen(self) -> None:
+        """No-op lifecycle hook (satisfies SpecialistPack protocol)."""
+
+    async def aclose(self) -> None:
+        """No-op lifecycle hook (satisfies SpecialistPack protocol)."""
+
     async def execute_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         if name == "shell":
             return {"stdout": "ok"}

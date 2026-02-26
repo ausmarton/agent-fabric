@@ -133,3 +133,24 @@ def test_all_enabled_contains_every_feature():
     fs = FeatureSet.all_enabled()
     for f in Feature:
         assert fs.is_enabled(f), f"{f.value} should be enabled"
+
+
+# ---------------------------------------------------------------------------
+# P11-2: BROWSER in PROFILE_FEATURES (small, medium, large, server; NOT nano)
+# ---------------------------------------------------------------------------
+
+def test_browser_not_in_nano_features():
+    assert Feature.BROWSER not in PROFILE_FEATURES[ProfileTier.NANO]
+
+
+def test_browser_in_small_features():
+    assert Feature.BROWSER in PROFILE_FEATURES[ProfileTier.SMALL]
+
+
+def test_browser_in_medium_features():
+    assert Feature.BROWSER in PROFILE_FEATURES[ProfileTier.MEDIUM]
+
+
+def test_browser_in_large_and_server_features():
+    assert Feature.BROWSER in PROFILE_FEATURES[ProfileTier.LARGE]
+    assert Feature.BROWSER in PROFILE_FEATURES[ProfileTier.SERVER]
