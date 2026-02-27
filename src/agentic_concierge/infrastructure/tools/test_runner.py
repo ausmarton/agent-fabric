@@ -15,6 +15,8 @@ _PYTEST_PASSED_RE = re.compile(r"(\d+) passed")
 _PYTEST_FAILED_RE = re.compile(r"(\d+) failed")
 _PYTEST_ERROR_RE = re.compile(r"(\d+) error(?:s)?")
 _CARGO_RESULT_RE = re.compile(r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed")
+_UNITTEST_RAN_RE = re.compile(r"Ran (\d+) tests?")
+_UNITTEST_FAILED_RE = re.compile(r"FAILED \((?:failures=(\d+))?(?:,\s*)?(?:errors=(\d+))?\)")
 
 _MAX_OUTPUT_CHARS = 3000
 
@@ -113,6 +115,26 @@ def _parse_cargo_output(output: str) -> Tuple[bool, int, int, str]:
     return False, 0, 0, "no test results detected"
 
 
+def _parse_unittest_output(output: str) -> Tuple[bool, int, int, str]:
+    """Parse python -m unittest output. Returns (all_passed, failed_count, error_count, summary)."""
+    ran_m = _UNITTEST_RAN_RE.search(output)
+    fail_m = _UNITTEST_FAILED_RE.search(output)
+
+    ran = int(ran_m.group(1)) if ran_m else 0
+    failures = int(fail_m.group(1) or 0) if fail_m and fail_m.group(1) else 0
+    errors = int(fail_m.group(2) or 0) if fail_m and fail_m.group(2) else 0
+
+    all_passed = fail_m is None and ran > 0
+    summary = f"{ran} ran"
+    if failures:
+        summary += f", {failures} failed"
+    if errors:
+        summary += f", {errors} errors"
+    if not ran:
+        summary = "no tests discovered"
+    return all_passed, failures, errors, summary
+
+
 def run_tests(
     policy: SandboxPolicy,
     framework: str = "auto",
@@ -125,7 +147,7 @@ def run_tests(
 
     Args:
         policy: Sandbox policy (root + allowed_commands).
-        framework: ``'auto'`` (detect), ``'pytest'``, ``'cargo'``, or ``'npm'``.
+        framework: ``'auto'`` (detect), ``'pytest'``, ``'unittest'``, ``'cargo'``, or ``'npm'``.
         path: Relative path to the directory to run tests in (default ``'.'``).
         timeout_s: Per-test-run timeout in seconds.
 
@@ -143,12 +165,15 @@ def run_tests(
 
     # Detect framework
     detected = _detect_framework(scan_root) if framework == "auto" else framework
-    if detected not in ("pytest", "cargo", "npm"):
+    if detected not in ("pytest", "unittest", "cargo", "npm"):
         detected = "pytest"
 
-    # Build command
+    # Build command — always use `python -m <runner>` so the sandbox Python
+    # interpreter is used and no separate binary needs to be on PATH.
     if detected == "pytest":
-        cmd = ["pytest", "."]
+        cmd = ["python", "-m", "pytest", "."]
+    elif detected == "unittest":
+        cmd = ["python", "-m", "unittest", "discover"]
     elif detected == "cargo":
         cmd = ["cargo", "test"]
     else:  # npm
@@ -174,6 +199,8 @@ def run_tests(
     # Parse output
     if detected == "pytest":
         all_passed, failed_count, error_count, summary = _parse_pytest_output(combined)
+    elif detected == "unittest":
+        all_passed, failed_count, error_count, summary = _parse_unittest_output(combined)
     elif detected == "cargo":
         all_passed, failed_count, error_count, summary = _parse_cargo_output(combined)
     else:

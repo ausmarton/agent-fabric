@@ -20,6 +20,7 @@ from agentic_concierge.infrastructure.tools.test_runner import (
     _detect_framework,
     _parse_cargo_output,
     _parse_pytest_output,
+    _parse_unittest_output,
     run_tests,
 )
 from agentic_concierge.infrastructure.tools.sandbox import SandboxPolicy
@@ -158,7 +159,7 @@ def test_run_tests_auto_detects_and_runs_pytest(tmp_path):
 
     mock_run_cmd.assert_called_once()
     cmd_arg = mock_run_cmd.call_args[0][1]  # second positional arg is the command list
-    assert cmd_arg[0] == "pytest"
+    assert cmd_arg[:3] == ["python", "-m", "pytest"]
     assert result["passed"] is True
     assert result["framework"] == "pytest"
 
@@ -238,3 +239,92 @@ def test_run_tests_output_truncated(tmp_path):
         result = run_tests(policy, framework="pytest")
 
     assert len(result["output"]) <= 3000
+
+
+# ---------------------------------------------------------------------------
+# _parse_unittest_output tests
+# ---------------------------------------------------------------------------
+
+def test_parse_unittest_all_passed():
+    output = "....\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nOK"
+    passed, failed, errors, summary = _parse_unittest_output(output)
+    assert passed is True
+    assert failed == 0
+    assert errors == 0
+    assert "4 ran" in summary
+
+
+def test_parse_unittest_with_failures():
+    output = "...F\n======\nFAIL: test_foo\n------\nRan 4 tests in 0.001s\n\nFAILED (failures=1)"
+    passed, failed, errors, summary = _parse_unittest_output(output)
+    assert passed is False
+    assert failed == 1
+    assert "failed" in summary
+
+
+def test_parse_unittest_with_errors():
+    output = "...E\nRan 4 tests in 0.001s\n\nFAILED (errors=1)"
+    passed, failed, errors, summary = _parse_unittest_output(output)
+    assert passed is False
+    assert errors == 1
+
+
+def test_parse_unittest_empty_output():
+    passed, failed, errors, summary = _parse_unittest_output("")
+    assert passed is False
+    assert "no tests" in summary
+
+
+# ---------------------------------------------------------------------------
+# run_tests with framework='unittest'
+# ---------------------------------------------------------------------------
+
+def test_run_tests_explicit_unittest_uses_python_m_unittest(tmp_path):
+    """run_tests with framework='unittest' runs python -m unittest discover."""
+    mock_result = {
+        "stdout": "....\n------\nRan 4 tests in 0.001s\n\nOK",
+        "stderr": "",
+        "returncode": 0,
+    }
+    with patch(
+        "agentic_concierge.infrastructure.tools.test_runner.run_cmd",
+        return_value=mock_result,
+    ) as mock_run_cmd:
+        policy = _make_policy(tmp_path)
+        result = run_tests(policy, framework="unittest")
+
+    cmd_arg = mock_run_cmd.call_args[0][1]
+    assert cmd_arg[:4] == ["python", "-m", "unittest", "discover"]
+    assert result["framework"] == "unittest"
+    assert result["passed"] is True
+
+
+def test_run_tests_pytest_uses_python_m_pytest(tmp_path):
+    """run_tests with framework='pytest' runs python -m pytest, not bare pytest."""
+    mock_result = {"stdout": "1 passed in 0.1s", "stderr": "", "returncode": 0}
+    with patch(
+        "agentic_concierge.infrastructure.tools.test_runner.run_cmd",
+        return_value=mock_result,
+    ) as mock_run_cmd:
+        policy = _make_policy(tmp_path)
+        run_tests(policy, framework="pytest")
+
+    cmd_arg = mock_run_cmd.call_args[0][1]
+    assert cmd_arg[0] == "python"
+    assert cmd_arg[1] == "-m"
+    assert cmd_arg[2] == "pytest"
+
+
+def test_run_tests_unknown_framework_falls_back_to_pytest(tmp_path):
+    """An unrecognised framework name silently falls back to pytest."""
+    mock_result = {"stdout": "1 passed", "stderr": "", "returncode": 0}
+    with patch(
+        "agentic_concierge.infrastructure.tools.test_runner.run_cmd",
+        return_value=mock_result,
+    ) as mock_run_cmd:
+        policy = _make_policy(tmp_path)
+        result = run_tests(policy, framework="mocha")  # not a known framework
+
+    cmd_arg = mock_run_cmd.call_args[0][1]
+    assert cmd_arg[:3] == ["python", "-m", "pytest"]
+    assert result["framework"] == "pytest"
