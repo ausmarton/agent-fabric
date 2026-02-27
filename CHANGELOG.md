@@ -11,6 +11,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.3.6] — 2026-02-27
+
+### Fixed
+
+- `application/execute_task.py`: add repetition / loop detection to
+  `_execute_pack_loop`. When the same `(tool, args)` signature appears
+  `_LOOP_DETECT_THRESHOLD` (2) times within the last `_LOOP_DETECT_WINDOW` (8)
+  calls, a `[SYSTEM] LOOP DETECTED` user message is injected into the
+  conversation directing the LLM to re-read the error and take a different
+  approach. A `loop_detected` runlog event is emitted for observability.
+- `infrastructure/specialists/prompts.py`: add "Package installation" and
+  "Avoiding loops" sections to `SYSTEM_PROMPT_ENGINEERING`. Instructs the LLM
+  to use `python -m pip install` (not bare `pip`), write `requirements.txt`
+  before installing, and not repeat the same failing command unchanged.
+
+### Tests
+
+- `tests/test_execute_task.py`: +3 tests for loop detection
+  (`test_loop_detected_event_emitted_on_repeated_call`,
+  `test_no_loop_detected_for_different_args`,
+  `test_loop_warning_injected_as_user_message`).
+
+---
+
 ## [0.3.5] — 2026-02-27
 
 ### Fixed
@@ -262,7 +286,8 @@ Initial public release of agentic-concierge, covering Phases 1–8.
 - Release workflow: automated PyPI publish (OIDC trusted publishing) + Docker image to GHCR on version tags.
 - Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agentic-concierge + model-pull).
 
-[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.6...HEAD
+[0.3.6]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.2...v0.3.3
