@@ -20,7 +20,10 @@ jobs:
         include:
           - { target: x86_64-unknown-linux-musl,  runner: ubuntu-latest, use_cross: true  }
           - { target: aarch64-unknown-linux-musl, runner: ubuntu-latest, use_cross: true  }
-          - { target: x86_64-apple-darwin,        runner: macos-13,      use_cross: false }
+          # Both macOS targets use macos-latest (ARM runner).
+          # x86_64-apple-darwin is cross-compiled from ARM; Apple's SDK supports this natively.
+          # macos-13 (Intel) runners have very limited availability and are being deprecated.
+          - { target: x86_64-apple-darwin,        runner: macos-latest,  use_cross: false }
           - { target: aarch64-apple-darwin,       runner: macos-latest,  use_cross: false }
     steps:
       - uses: actions/checkout@v4
@@ -149,14 +152,15 @@ jobs:
           name: dist
           path: dist/
       - name: Download launcher binaries
-        if: needs.build-launcher-release.result == 'success'
+        # Download whatever binaries built successfully; partial success is fine.
+        # continue-on-error so a missing artifact does not abort the release.
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: launcher-*
           path: launcher-bins/
           merge-multiple: true
       - name: Sign binaries
-        if: needs.build-launcher-release.result == 'success'
         env:
           SIGNING_KEY: ${{ secrets.LAUNCHER_SIGNING_KEY_PEM }}
         run: |
@@ -164,6 +168,7 @@ jobs:
             echo "::warning::LAUNCHER_SIGNING_KEY_PEM secret not set — binaries will not be signed"
             exit 0
           fi
+          [ -d launcher-bins ] || exit 0
           printf '%s' "$SIGNING_KEY" > /tmp/signing.pem
           for f in launcher-bins/concierge-*; do
             [[ "$f" == *.sig ]] && continue

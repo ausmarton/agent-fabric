@@ -11,6 +11,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.3.5] — 2026-02-27
+
+### Fixed
+
+- `.github/workflows/release.yml`: replace `macos-13` (Intel runner — deprecated,
+  very limited availability, caused x86_64-apple-darwin jobs to be cancelled with
+  zero steps) with `macos-latest`; the ARM runner cross-compiles to x86_64-darwin
+  natively via Apple's SDK.
+- `.github/workflows/release.yml`: replace `if: needs.build-launcher-release.result == 'success'`
+  on the "Download launcher binaries" step with `continue-on-error: true` so that
+  whichever binaries built successfully are attached to the release even when one
+  target fails; previously a single cancelled job caused all binaries to be omitted.
+
+---
+
 ## [0.3.4] — 2026-02-27
 
 ### Fixed
@@ -247,7 +262,8 @@ Initial public release of agentic-concierge, covering Phases 1–8.
 - Release workflow: automated PyPI publish (OIDC trusted publishing) + Docker image to GHCR on version tags.
 - Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agentic-concierge + model-pull).
 
-[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.1...v0.3.2
