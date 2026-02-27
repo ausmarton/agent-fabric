@@ -11,6 +11,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.3.7] — 2026-02-27
+
+### Fixed
+
+- `infrastructure/tools/test_runner.py`: replace `["pytest", "."]` with
+  `["python", "-m", "pytest", "."]` — the bare `pytest` binary is not on PATH
+  in the sandbox, causing every `run_tests()` call to crash with
+  `[Errno 2] No such file or directory: 'pytest'` and the LLM to loop
+  indefinitely trying to run tests.
+- `infrastructure/tools/test_runner.py`: add `"unittest"` as a first-class
+  framework. Previously `framework='unittest'` was silently coerced to
+  `"pytest"` (not in the valid set), hitting the same crash. Now it runs
+  `python -m unittest discover` with its own output parser
+  (`_parse_unittest_output`).
+
+### Tests
+
+- `tests/test_run_tests_tool.py`: +7 tests covering the new `_parse_unittest_output`
+  function and the corrected command construction for both `pytest` and `unittest`.
+
+---
+
 ## [0.3.6] — 2026-02-27
 
 ### Fixed
@@ -286,7 +308,8 @@ Initial public release of agentic-concierge, covering Phases 1–8.
 - Release workflow: automated PyPI publish (OIDC trusted publishing) + Docker image to GHCR on version tags.
 - Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agentic-concierge + model-pull).
 
-[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.6...HEAD
+[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.7...HEAD
+[0.3.7]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.3...v0.3.4
