@@ -631,6 +631,74 @@ async def test_non_permission_errors_produce_no_security_event(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Loop / repetition detection
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_loop_detected_event_emitted_on_repeated_call(tmp_path):
+    """When the same tool+args combination appears _LOOP_DETECT_THRESHOLD times in
+    the history window, a loop_detected event is logged in the runlog."""
+    # list_files({}) repeated 3 times (triggers at 3rd occurrence) then finish.
+    responses = [
+        _tool_response("list_files", call_id="c1"),
+        _tool_response("list_files", call_id="c2"),
+        _tool_response("list_files", call_id="c3"),
+        _finish_response(call_id="c4"),
+    ]
+    result = await _run(responses, tmp_path=tmp_path)
+
+    events = _read_runlog(result.run_dir)
+    loop_events = [e for e in events if e["kind"] == "loop_detected"]
+    assert len(loop_events) >= 1, "loop_detected event must be logged"
+    assert loop_events[0]["payload"]["tool"] == "list_files"
+    assert loop_events[0]["payload"]["repeat_count"] >= 2
+    # Task still completes normally.
+    assert result.payload["action"] == "final"
+
+
+@pytest.mark.asyncio
+async def test_no_loop_detected_for_different_args(tmp_path):
+    """Calls to the same tool with DIFFERENT arguments must NOT trigger loop detection."""
+    resp1 = LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(call_id="c1", tool_name="read_file", arguments={"path": "a.py"})],
+    )
+    resp2 = LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(call_id="c2", tool_name="read_file", arguments={"path": "b.py"})],
+    )
+    resp3 = LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(call_id="c3", tool_name="read_file", arguments={"path": "c.py"})],
+    )
+    result = await _run([resp1, resp2, resp3, _finish_response(call_id="c4")], tmp_path=tmp_path)
+
+    events = _read_runlog(result.run_dir)
+    assert not any(e["kind"] == "loop_detected" for e in events), (
+        "Different args must not trigger loop_detected"
+    )
+
+
+@pytest.mark.asyncio
+async def test_loop_warning_injected_as_user_message(tmp_path):
+    """After loop_detected, a user-visible warning message is injected so the LLM
+    sees it in the next context window (one extra llm_request per warning)."""
+    responses = [
+        _tool_response("list_files", call_id="c1"),
+        _tool_response("list_files", call_id="c2"),
+        _tool_response("list_files", call_id="c3"),  # triggers loop warning on step 2
+        _finish_response(call_id="c4"),
+    ]
+    result = await _run(responses, tmp_path=tmp_path)
+
+    events = _read_runlog(result.run_dir)
+    # At least one loop_detected event must exist.
+    assert any(e["kind"] == "loop_detected" for e in events)
+    # Task still completes.
+    assert result.payload["action"] == "final"
+
+
+# ---------------------------------------------------------------------------
 # Phase 12 additions: brief injection, synthesis, checkpoint
 # ---------------------------------------------------------------------------
 

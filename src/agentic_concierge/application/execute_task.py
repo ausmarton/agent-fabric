@@ -43,6 +43,12 @@ _FINISH_TOOL_RESULT_CONTENT = json.dumps({"ok": True, "status": "task_completed"
 # the limit we inject a corrective re-prompt nudging the LLM back on track.
 _MAX_PLAIN_TEXT_RETRIES = 2
 
+# Repetition / loop detection: if the same (tool, args) signature appears this
+# many times within the last _LOOP_DETECT_WINDOW calls, inject a loop-break
+# warning so the LLM is forced to re-read the error and try something different.
+_LOOP_DETECT_WINDOW: int = 8
+_LOOP_DETECT_THRESHOLD: int = 2
+
 
 def _emit(
     queue: Optional[asyncio.Queue],
@@ -968,6 +974,8 @@ async def _execute_pack_loop(
     payload: Dict[str, Any] = {}
     any_non_finish_tool_called = False
     consecutive_plain_text = 0
+    # Repetition detection: sliding window of recent (tool_name, args) signatures.
+    tool_call_history: List[str] = []
 
     try:
         await pack.aopen()
@@ -1155,6 +1163,14 @@ async def _execute_pack_loop(
 
                 # Mark that the LLM has attempted at least one non-finish tool.
                 any_non_finish_tool_called = True
+
+                # Repetition detection: warn the LLM when it repeats the same call.
+                _call_sig = tc.tool_name + ":" + json.dumps(tc.arguments, sort_keys=True)
+                _recent_repeats = sum(
+                    1 for s in tool_call_history[-_LOOP_DETECT_WINDOW:] if s == _call_sig
+                )
+                tool_call_history.append(_call_sig)
+
                 error_type: Optional[str] = None
                 error_message: str = ""
                 with tracer.start_as_current_span("concierge.tool_call") as tool_span:
@@ -1208,6 +1224,39 @@ async def _execute_pack_loop(
                     run_repository.append_event(run_id, "tool_result", _tresult_ev, step=step_key)
                     _emit(event_queue, "tool_result", _tresult_ev, step=step_key)
                 messages.append(_make_tool_result(tc.call_id, json.dumps(result, ensure_ascii=False)))
+
+                if _recent_repeats >= _LOOP_DETECT_THRESHOLD:
+                    _loop_warning = (
+                        f"[SYSTEM] LOOP DETECTED: you have already called '{tc.tool_name}' "
+                        f"with these exact arguments {_recent_repeats} time(s) recently "
+                        "and it has not resolved the problem.\n"
+                        "STOP repeating this action. Instead:\n"
+                        "1. Re-read the error output above and identify the ROOT CAUSE.\n"
+                        "2. Take a DIFFERENT action — fix the code, install a missing "
+                        "dependency with `python -m pip install <pkg>`, or restructure "
+                        "your approach.\n"
+                        "3. If you cannot fix the issue after trying multiple approaches, "
+                        "call finish_task with an explanation of what was attempted and "
+                        "what failed."
+                    )
+                    messages.append({"role": "user", "content": _loop_warning})
+                    logger.warning(
+                        "Step %s: loop detected — tool %r repeated %d time(s); "
+                        "injected loop-break warning",
+                        step_key, tc.tool_name, _recent_repeats,
+                    )
+                    run_repository.append_event(
+                        run_id,
+                        "loop_detected",
+                        {"tool": tc.tool_name, "repeat_count": _recent_repeats},
+                        step=step_key,
+                    )
+                    _emit(
+                        event_queue,
+                        "loop_detected",
+                        {"tool": tc.tool_name, "repeat_count": _recent_repeats},
+                        step=step_key,
+                    )
 
             if finish_payload is not None:
                 payload = finish_payload

@@ -29,6 +29,19 @@ the given task correctly using the available tools.
 4. Call finish_task when complete, providing a clear summary and listing any
    files you created or modified.
 
+## Package installation
+- Always use `python -m pip install <package>` — never bare `pip`, which may
+  resolve to the wrong interpreter or not be found at all.
+- If you need third-party packages, write a requirements.txt first, then run
+  `python -m pip install -r requirements.txt`.
+
+## Avoiding loops
+- If a command fails, read its stdout/stderr carefully and fix the ROOT CAUSE
+  before retrying. Do NOT repeat the same failing command unchanged.
+- If you have already tried the same action twice without progress, STOP and
+  take a completely different approach, or call finish_task explaining what
+  failed and why you cannot proceed.
+
 ## Quality gate (mandatory)
 Before calling finish_task you MUST:
 1. Call run_tests() and confirm all tests pass.
