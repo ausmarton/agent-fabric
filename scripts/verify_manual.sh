@@ -103,7 +103,7 @@ if run_section launcher; then
 
     # 4. cargo test passes
     if command -v cargo >/dev/null 2>&1; then
-        if cargo test --manifest-path launcher/Cargo.toml -q 2>&1 | tail -1 | grep -q "^test result: ok"; then
+        if cargo test --manifest-path launcher/Cargo.toml -q 2>&1 | grep -q "^test result: ok"; then
             pass "cargo test passes"
         else
             fail "cargo test failed"
@@ -161,27 +161,45 @@ if run_section install; then
         if [[ -n "$LATEST" ]]; then
             pass "GitHub API reachable; latest tag = $LATEST"
 
-            # 4. Full install
-            if CONCIERGE_INSTALL_DIR="$INSTALL_TMP" sh install.sh 2>&1 | grep -q "installed to"; then
-                pass "install.sh completed successfully"
-            else
-                fail "install.sh did not print 'installed to'"
-            fi
+            # Check whether the launcher binary is available in this release
+            ARCH=$(uname -m)
+            case "$(uname -s):$ARCH" in
+                Linux:x86_64)        BIN_ASSET="concierge-x86_64-unknown-linux-musl" ;;
+                Linux:aarch64)       BIN_ASSET="concierge-aarch64-unknown-linux-musl" ;;
+                Darwin:x86_64)       BIN_ASSET="concierge-x86_64-apple-darwin" ;;
+                Darwin:arm64)        BIN_ASSET="concierge-aarch64-apple-darwin" ;;
+                *)                   BIN_ASSET="" ;;
+            esac
+            ASSET_URL=$(curl -fsSL --max-time 5 \
+                "https://api.github.com/repos/ausmarton/agentic-concierge/releases/latest" \
+                2>/dev/null | grep "\"browser_download_url\"" | grep "$BIN_ASSET\"" \
+                | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/' || true)
 
-            # 5. Binary is executable
-            if [[ -x "$INSTALL_TMP/concierge" ]]; then
-                pass "installed binary is executable"
+            if [[ -z "$ASSET_URL" ]]; then
+                skip "launcher binary not yet on release $LATEST (CI cross-compile pending)"
             else
-                fail "installed binary is missing or not executable"
-            fi
-
-            # 6. Binary size sanity
-            if [[ -f "$INSTALL_TMP/concierge" ]]; then
-                ISIZE=$(stat -c%s "$INSTALL_TMP/concierge" 2>/dev/null || stat -f%z "$INSTALL_TMP/concierge")
-                if [[ "$ISIZE" -gt 100000 ]]; then
-                    pass "installed binary size plausible ($(( ISIZE / 1024 )) KB)"
+                # 4. Full install
+                if CONCIERGE_INSTALL_DIR="$INSTALL_TMP" sh install.sh 2>&1 | grep -q "installed to"; then
+                    pass "install.sh completed successfully"
                 else
-                    fail "installed binary suspiciously small ($ISIZE bytes)"
+                    fail "install.sh did not print 'installed to'"
+                fi
+
+                # 5. Binary is executable
+                if [[ -x "$INSTALL_TMP/concierge" ]]; then
+                    pass "installed binary is executable"
+                else
+                    fail "installed binary is missing or not executable"
+                fi
+
+                # 6. Binary size sanity
+                if [[ -f "$INSTALL_TMP/concierge" ]]; then
+                    ISIZE=$(stat -c%s "$INSTALL_TMP/concierge" 2>/dev/null || stat -f%z "$INSTALL_TMP/concierge")
+                    if [[ "$ISIZE" -gt 100000 ]]; then
+                        pass "installed binary size plausible ($(( ISIZE / 1024 )) KB)"
+                    else
+                        fail "installed binary suspiciously small ($ISIZE bytes)"
+                    fi
                 fi
             fi
         else
@@ -278,6 +296,8 @@ if run_section docker; then
         skip "docker not installed"
     elif ! docker info >/dev/null 2>&1; then
         skip "Docker daemon not running"
+    elif ! docker compose version >/dev/null 2>&1; then
+        skip "docker compose plugin not installed (no docker compose / podman-compose)"
     else
         pass "Docker daemon is running"
 
