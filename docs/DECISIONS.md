@@ -503,3 +503,65 @@ llama.cpp backend, vLLM's CUDA kernels).
   rule that only `main.rs` may import from other modules. This enables Phase 14+ to replace
   any single module (e.g. swap `setup.rs` for a native Rust Python manager) without touching
   the others.
+- Phase 14 replaced the `tar xzf` subprocess in `setup.rs` with pure-Rust `flate2`+`tar`
+  crates and added Ed25519 signed binary verification in `update.rs` (see ADR-017).
+- Phase 14 also added macOS targets (`x86_64/aarch64-apple-darwin`) to CI and `install.sh`.
+
+---
+
+## ADR-017: Ed25519 signed binary verification for self-update
+
+**Status:** Accepted
+**Date:** 2026-02-27
+
+**Context:** The self-update mechanism in `apply_update()` downloads a binary from GitHub
+Releases and replaces the running binary with an atomic rename. Without signature verification,
+a compromised GitHub account or a network-level MITM attack (even with HTTPS, if a CDN or
+cache layer is compromised) could deliver a malicious binary that passes the HTTP check. The
+threat is small in practice but binary self-update is one of the highest-impact attack surfaces
+in a developer tool.
+
+**Decision:** Every release binary is signed with an Ed25519 keypair during the `release.yml`
+CI job.  The public key is embedded at compile time as a 32-byte constant
+(`SIGNING_PUBLIC_KEY` in `update.rs`).  Before atomically renaming a downloaded binary into
+place, `apply_update()` downloads the corresponding `.sig` file and calls
+`verify_binary_signature()`.  An invalid signature causes immediate `Err` return; the
+partial-download files are cleaned up; the installed binary is unchanged.
+
+**Key management:**
+- **Private key:** stored as CI secret `LAUNCHER_SIGNING_KEY_PEM` (PEM-encoded Ed25519
+  private key).  Generated once with `scripts/generate_signing_key.sh`.  Never written to
+  disk on a developer machine; injected only into the release runner.
+- **Public key:** embedded in compiled binary.  Changing it requires a new release.  Key
+  rotation procedure: run `generate_signing_key.sh`, update `SIGNING_PUBLIC_KEY` in
+  `update.rs`, update the CI secret, tag a new release.
+- **Placeholder:** until the first signed release, `SIGNING_PUBLIC_KEY = [0u8; 32]`.  The
+  all-zeros key causes `VerifyingKey::from_bytes` or signature verification to fail, so the
+  update is silently skipped.  This is safe: unsigned updates are rejected, not silently
+  applied.
+
+**Failure policy:**
+- Any verification failure (missing sig file, wrong length, invalid signature) → `Err`.
+- `apply_update` caller in `main.rs` catches the error and prints it; the launcher continues
+  running with the existing binary.
+- The passive hint (non-self-update path) never downloads a binary, so verification never
+  runs there.
+
+**Why Ed25519 (not RSA, ECDSA, or a checksum file):**
+- Ed25519 is pure-Rust (curve25519-dalek), musl-compatible, no system OpenSSL dependency.
+  RSA and ECDSA verification would require linking OpenSSL or a large Rust implementation.
+- Detached raw-byte signatures are 64 bytes — trivial to download alongside the binary.
+- Ed25519 is the same curve used by SSH and modern Git signing; the OpenSSL CLI used for
+  key generation and release signing (`pkeyutl -rawin`) is standard.
+- A checksum file (SHA-256) provides tamper detection but not authentication: anyone who
+  can replace the binary can also replace the checksum.
+
+**Consequences:**
+- New CI secret `LAUNCHER_SIGNING_KEY_PEM` required before a signed release can be made.
+- `launcher/Cargo.toml` gains `ed25519-dalek = { version = "2", … }`.
+- `verify_binary_signature_with_key` is an inner function accepting a custom key — this
+  enables unit tests without depending on the placeholder key.
+- Tests: 5 new tests in `update.rs` covering valid sig, tampered binary, wrong key,
+  truncated sig, and apply-update blocked on bad sig.
+- The signing step in `release.yml` is graceful: if `LAUNCHER_SIGNING_KEY_PEM` is unset
+  (e.g. a fork or early release), binaries are published unsigned with a CI warning.

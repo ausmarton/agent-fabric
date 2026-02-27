@@ -3,18 +3,18 @@ use thiserror::Error;
 
 #[derive(Debug)]
 pub struct LauncherConfig {
-    pub data_dir:      PathBuf,  // ~/.local/share/agentic-concierge (or CONCIERGE_DATA_DIR)
-    pub venv_dir:      PathBuf,  // data_dir/venv
-    pub uv_path:       PathBuf,  // data_dir/uv
-    pub version_file:  PathBuf,  // data_dir/installed_version
+    pub data_dir: PathBuf, // ~/.local/share/agentic-concierge (or CONCIERGE_DATA_DIR)
+    pub venv_dir: PathBuf, // data_dir/venv
+    pub uv_path: PathBuf,  // data_dir/uv
+    pub version_file: PathBuf, // data_dir/installed_version
     /// The directory containing the installed launcher binary (e.g. `~/.local/bin`).
     /// Stored for Phase 14+ use; not yet read by any hot path.
     #[allow(dead_code)]
-    pub bin_dir:       PathBuf,  // ~/.local/bin
-    pub installed_bin: PathBuf,  // bin_dir/concierge (self-path for atomic replace)
-    pub skip_update:   bool,     // CONCIERGE_NO_UPDATE_CHECK=1
-    pub package_name:  String,   // "agentic-concierge"
-    pub pypi_extra:    Option<String>, // CONCIERGE_EXTRA env var (e.g. "mcp,otel")
+    pub bin_dir: PathBuf, // ~/.local/bin
+    pub installed_bin: PathBuf, // bin_dir/concierge (self-path for atomic replace)
+    pub skip_update: bool, // CONCIERGE_NO_UPDATE_CHECK=1
+    pub package_name: String, // "agentic-concierge"
+    pub pypi_extra: Option<String>, // CONCIERGE_EXTRA env var (e.g. "mcp,otel")
 }
 
 #[derive(Debug, Error)]

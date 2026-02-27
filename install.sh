@@ -7,7 +7,7 @@
 # Environment:
 #   CONCIERGE_INSTALL_DIR  Override install directory (default: ~/.local/bin)
 #
-# Supports: Linux x86_64 and aarch64 (musl static binary).
+# Supports: Linux x86_64/aarch64 (musl static binary), macOS x86_64/arm64.
 # Other platforms: use  pip install agentic-concierge
 
 set -e
@@ -15,18 +15,25 @@ set -e
 REPO="ausmarton/agentic-concierge"
 INSTALL_DIR="${CONCIERGE_INSTALL_DIR:-$HOME/.local/bin}"
 
-# Platform checks
-[ "$(uname -s)" = "Linux" ] || {
-    echo "[concierge] Linux only; use pip on other platforms:" >&2
-    echo "  pip install agentic-concierge" >&2
-    exit 1
-}
-
+# Platform + architecture detection
 ARCH=$(uname -m)
-case "$ARCH" in
-    x86_64)        TARGET="x86_64-unknown-linux-musl" ;;
-    aarch64|arm64) TARGET="aarch64-unknown-linux-musl" ;;
-    *) echo "[concierge] unsupported architecture: $ARCH" >&2; exit 1 ;;
+OS=$(uname -s)
+case "$OS" in
+  Linux)
+    case "$ARCH" in
+      x86_64)        TARGET="x86_64-unknown-linux-musl" ;;
+      aarch64|arm64) TARGET="aarch64-unknown-linux-musl" ;;
+      *) echo "[concierge] unsupported arch: $ARCH" >&2; exit 1 ;;
+    esac ;;
+  Darwin)
+    case "$ARCH" in
+      x86_64) TARGET="x86_64-apple-darwin" ;;
+      arm64)  TARGET="aarch64-apple-darwin" ;;
+      *) echo "[concierge] unsupported arch: $ARCH" >&2; exit 1 ;;
+    esac ;;
+  *)
+    echo "[concierge] unsupported OS: $OS — use: pip install agentic-concierge" >&2
+    exit 1 ;;
 esac
 
 # Resolve latest release tag

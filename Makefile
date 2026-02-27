@@ -30,6 +30,10 @@ PYTEST      := $(PYTHON) -m pytest
 RUFF        := $(shell test -f .venv/bin/ruff && echo .venv/bin/ruff || echo ruff)
 CARGO_MANIFEST := launcher/Cargo.toml
 
+# Auto-detect cargo: prefer rustup-managed (~/.cargo/bin) over system cargo so
+# that clippy/rustfmt (installed via rustup) are reachable.
+CARGO       := $(shell test -f $(HOME)/.cargo/bin/cargo && echo $(HOME)/.cargo/bin/cargo || echo cargo)
+
 # Markers excluded from the fast (CI-safe) suite
 FAST_FILTER := -k "not real_llm and not real_mcp and not podman \
                     and not real_browser and not real_chromadb \
@@ -76,6 +80,9 @@ help:
 	@echo "  ── Lint ──────────────────────────────────────────────────────────"
 	@echo "  make lint             Ruff lint (src/ + tests/)"
 	@echo "  make lint-rust        cargo fmt --check + cargo clippy"
+	@echo ""
+	@echo "  ── Setup ─────────────────────────────────────────────────────────"
+	@echo "  make setup-rust-toolchain   Install rustup + clippy/rustfmt (user-local)"
 	@echo ""
 	@echo "  ── Manual smoke verification ─────────────────────────────────────"
 	@echo "  make verify           All sections (requires services)"
@@ -195,7 +202,7 @@ test-all-python:
 
 .PHONY: test-rust
 test-rust:
-	cargo test --manifest-path $(CARGO_MANIFEST)
+	$(CARGO) test --manifest-path $(CARGO_MANIFEST)
 
 .PHONY: test-all
 test-all: test-all-python test-rust
@@ -210,9 +217,9 @@ lint:
 	$(RUFF) check src/ tests/ --select E,W,F --ignore E501,F401
 
 .PHONY: lint-rust
-lint-rust:
-	cargo fmt --manifest-path $(CARGO_MANIFEST) --check
-	cargo clippy --manifest-path $(CARGO_MANIFEST) -- -D warnings
+lint-rust: setup-rust-toolchain
+	$(HOME)/.cargo/bin/cargo fmt --manifest-path $(CARGO_MANIFEST) --check
+	$(HOME)/.cargo/bin/cargo clippy --manifest-path $(CARGO_MANIFEST) -- -D warnings
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +228,25 @@ lint-rust:
 
 .PHONY: check
 check: lint test-fast
+
+# ---------------------------------------------------------------------------
+# Rust toolchain setup (user-local via rustup — does not touch system packages)
+# ---------------------------------------------------------------------------
+
+# Install rustup + stable toolchain + clippy + rustfmt into ~/.cargo/
+# Idempotent: safe to run multiple times.
+.PHONY: setup-rust-toolchain
+setup-rust-toolchain:
+	@if ! command -v $(HOME)/.cargo/bin/rustup >/dev/null 2>&1; then \
+	  echo "[setup] Installing rustup (user-local, no sudo required)..."; \
+	  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+	    | sh -s -- -y --no-modify-path --default-toolchain stable; \
+	else \
+	  echo "[setup] rustup already installed at $(HOME)/.cargo/bin/rustup"; \
+	fi
+	@$(HOME)/.cargo/bin/rustup toolchain install stable --no-self-update
+	@$(HOME)/.cargo/bin/rustup component add clippy rustfmt
+	@echo "[setup] Rust toolchain ready. Add to PATH: export PATH=\"$(HOME)/.cargo/bin:\$$PATH\""
 
 
 # ---------------------------------------------------------------------------

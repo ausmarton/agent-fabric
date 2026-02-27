@@ -14,7 +14,7 @@ referenced source files, and [DECISIONS.md](DECISIONS.md).
 **How to resume after an interruption**
 1. Read [STATE.md](STATE.md) — confirms current phase and last verified state.
 2. Read this file — find the first non-done item; that is what to work on.
-3. Run `pytest tests/ -k "not real_llm and not real_mcp and not podman" -q` — confirm **599 pass** before touching code.
+3. Run `make test` — confirm **618 pass** before touching code.
 4. Start the item; mark it IN PROGRESS here and in STATE.md.
 
 ---
@@ -754,6 +754,136 @@ Phase 6 is complete (P6-1 through P6-4 all done; fast CI: 304 pass). Phase 7 foc
 | Un-skip and fix `test_resolve_llm_filters_embedding_models` | 2026-02-24 | Wrong patch target fixed; test now passes |
 | 5 new tests (packs, prompt content) | 2026-02-24 | `finish_task` in definitions, OpenAI format validation, prompt content checks |
 | All 4 real-LLM E2E tests passing | 2026-02-24 | engineering, research, API POST, verify_working_real.py — all pass against Ollama 0.12.11 with llama3.1:8b |
+
+---
+
+## Phase 17+ — Multi-tenant, Web UI, Plugin Registry
+
+**Status: FUTURE — not yet started**
+
+| Item | Summary |
+|------|---------|
+| Multi-tenant HTTP auth | API keys + JWT; per-tenant rate limits; tenant isolation in run directories |
+| Web UI / dashboard | React or HTMX frontend; real-time run streaming via SSE; run history browser |
+| Plugin registry | Third-party specialist packs discoverable and installable from a registry URL |
+
+These items require Phase 15 and 16 to be shipped first.  No implementation details
+are locked — requirements will be elaborated when Phase 16 is nearing completion.
+
+---
+
+## Phase 16 — PyO3 Extension Module + Additional Specialist Packs
+
+**Status: FUTURE — not yet started**
+
+**Trigger:** Phase 16 should be started only after profiling confirms that
+`cosine_similarity` (in `run_index.py`) is a CPU bottleneck at production scale
+(index > 50 000 entries).  For smaller scales ChromaDB already handles the
+vector work efficiently.
+
+### P16-1: PyO3 `cosine_similarity` extension
+- Scope: `cosine_similarity(a, b)` only — the Python application is I/O-bound
+  on all other hot paths (LLM HTTP, tool subprocesses, file I/O).  No other
+  Python→Rust FFI boundary is justified at current scale.
+- Toolchain: `maturin` build; wheel published alongside Python wheel in `release.yml`.
+- ADR: will add ADR-018 documenting the decision and the bottleneck evidence.
+
+### P16-2: Additional specialist packs
+- `data-analysis` pack — pandas / polars / matplotlib tools; structured-output finish.
+- `devops` pack — kubectl, docker, terraform tooling (containerised by default).
+- `documentation` pack — generates RST/Markdown docs from source; `sphinx`/`mkdocs` tools.
+
+---
+
+## Phase 15 — Windows Launcher + Homebrew Tap
+
+**Status: FUTURE — not yet started**
+
+### P15-1: Windows launcher (`x86_64-windows-msvc`)
+- `exec.rs`: add `#[cfg(windows)]` variant using `CreateProcess` +
+  `WaitForSingleObject` + `exit(child_exit_code)` to preserve correct exit
+  codes without leaving a zombie launcher process.
+- `setup.rs`: uv download URL → `uv-x86_64-pc-windows-msvc.zip`; use
+  `ZipArchive` (pure-Rust `zip` crate) instead of tar+gz.
+- CI: add `windows-latest` runner to `build-native` matrix in
+  `build-launcher.yml` and `release.yml`; artifact name `concierge-x86_64-pc-windows-msvc.exe`.
+- `install.ps1`: PowerShell one-liner to complement `install.sh`.
+
+### P15-2: Homebrew tap formula
+- `homebrew-tap/Formula/concierge.rb` in a separate `ausmarton/homebrew-tap` repo.
+- Formula downloads `aarch64-apple-darwin` or `x86_64-apple-darwin` binary from
+  GitHub Releases and verifies its Ed25519 signature (shell `openssl pkeyutl`).
+- `release.yml` auto-bumps the formula via `gh pr create` on the tap repo.
+
+---
+
+## Phase 14 — Native Rust Hot Paths
+
+**Status: COMPLETE — 2026-02-27**
+
+### P14-1: `launcher/Cargo.toml` — add 3 deps — DONE
+Pure-Rust deps: `flate2 = "1"`, `tar = "0.4"`, `ed25519-dalek = { version = "2", … }`.
+Static musl linking unaffected — all three are pure Rust with no system C libs.
+
+### P14-2: `launcher/src/setup.rs` — pure Rust tar extraction — DONE
+`extract_uv(archive_path, dest_dir)` using `flate2::read::GzDecoder` + `tar::Archive`.
+Iterates entries; finds the file named `uv`; unpacks and chmod 0o755.
+Replaces `std::process::Command::new("tar")` subprocess in `ensure_uv()`.
+`find_file()` helper removed (superseded). 2 new tests:
+`test_extract_uv_from_synthetic_archive`, `test_extract_uv_missing_binary`.
+
+### P14-3: `launcher/src/update.rs` — Ed25519 signed verification — DONE
+`SIGNING_PUBLIC_KEY: [u8; 32]` — placeholder (all-zeros); replace with
+`scripts/generate_signing_key.sh` output before first release.
+`verify_binary_signature_with_key(binary_path, sig_path, pub_key_bytes)` —
+inner function (testable with custom keys without dependency on placeholder).
+`verify_binary_signature(binary_path, sig_path)` — public wrapper using the embedded key.
+`apply_update()` updated: downloads `{binary_url}.sig`, calls `verify_binary_signature`,
+cleans up on failure, atomic rename only on success.
+Asset name updated: Linux → `concierge-{arch}-unknown-linux-musl`;
+macOS → `concierge-{arch}-apple-darwin`.  5 new tests.
+
+### P14-4: `launcher/src/exec.rs` — macOS cfg annotation — DONE
+`#[cfg(unix)]` on `exec_python_concierge`.  Comment documents Phase 15 Windows path.
+No functional change — `std::os::unix::process::CommandExt::exec()` is POSIX,
+works on both Linux and macOS without branching.
+
+### P14-5: `install.sh` — macOS platform dispatch — DONE
+Replaced `[ "$(uname -s)" = "Linux" ]` guard with OS+arch case-block.
+Linux: `*-unknown-linux-musl`. macOS: `*-apple-darwin`. Other OS: helpful error + exit 1.
+
+### P14-6: `.github/workflows/build-launcher.yml` — macOS matrix — DONE
+Renamed `build-musl` → `build-native`. Added `x86_64-apple-darwin` (macos-13)
+and `aarch64-apple-darwin` (macos-latest) entries. `use_cross: false` for macOS
+(native runners use `cargo build` directly). Binary size gate uses `perl -e` for
+portable file size (GNU `stat -c%s` not available on macOS).
+
+### P14-7: `.github/workflows/release.yml` — signing + macOS artifacts — DONE
+`build-launcher-release` matrix extended with macOS targets.  `Sign binaries` step
+added: downloads `LAUNCHER_SIGNING_KEY_PEM` CI secret, signs each binary with
+`openssl pkeyutl -rawin`, outputs `{binary}.sig` alongside the binary.  Signing step
+is graceful: if secret is not set a warning is emitted, release continues unsigned.
+`Create GitHub Release` glob updated to include all `launcher-bins/concierge-*`
+(catches `.sig` files too).
+
+### P14-8: Application hot-path audit — DONE
+All Python application hot paths are I/O-bound; no PyO3 extension justified at
+current scale.  See ARCHITECTURE.md Section 10 for the analysis table.
+PyO3 deferred to Phase 16 (only if `cosine_similarity` becomes a measurable bottleneck).
+
+### P14-9: Docs — DONE
+ADR-017 (Ed25519 signed self-update), ARCHITECTURE.md Section 10 (hot-path table),
+BACKLOG.md (Phase 14 DONE; Phase 15/16/17+ futures), STATE.md, CHANGELOG.md,
+`scripts/generate_signing_key.sh` (new).
+
+### P14-10: `Makefile` — `setup-rust-toolchain` target — DONE
+`make setup-rust-toolchain`: idempotent rustup user-local install (no system packages);
+installs `stable` + `clippy` + `rustfmt` into `~/.cargo/bin/`.
+`lint-rust` target updated to use `$(HOME)/.cargo/bin/cargo` so it works even when
+system cargo (e.g. Fedora dnf) lacks clippy/rustfmt.
+
+**Rust tests:** `make test-rust` → **20 pass** (was 13)
+**Python fast CI:** `make test` → **618 pass** (unchanged)
 
 ---
 

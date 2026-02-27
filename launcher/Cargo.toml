@@ -18,6 +18,12 @@ dirs       = "5"       # XDG Base Dir: ~/.local/share, ~/.local/bin
 semver     = "1"       # version comparison
 anyhow     = "1"       # top-level error handling
 thiserror  = "1"       # typed module errors
+# Pure-Rust gzip decompression (default miniz_oxide backend, no system zlib)
+flate2     = "1"
+# Tar archive traversal (pure Rust, no C)
+tar        = "0.4"
+# Ed25519 signature verification (pure Rust; musl-compatible)
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"

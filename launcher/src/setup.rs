@@ -58,9 +58,7 @@ pub fn ensure_environment(config: &LauncherConfig) -> anyhow::Result<PathBuf> {
                 .status()
                 .map_err(|e| SetupError::VenvCreation(e.to_string()))?;
             if !status.success() {
-                return Err(
-                    SetupError::VenvCreation("uv venv creation failed".to_string()).into()
-                );
+                return Err(SetupError::VenvCreation("uv venv creation failed".to_string()).into());
             }
         }
     }
@@ -131,7 +129,11 @@ fn try_system_python() -> Option<PathBuf> {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                let version_str = if stdout.contains("Python") { &*stdout } else { &*stderr };
+                let version_str = if stdout.contains("Python") {
+                    &*stdout
+                } else {
+                    &*stderr
+                };
                 if let Some(version) = parse_python_version(version_str) {
                     if version >= (3, 10) {
                         if let Ok(path) = which_bin(name) {
@@ -164,6 +166,9 @@ fn which_bin(name: &str) -> anyhow::Result<PathBuf> {
 }
 
 /// Ensure uv binary exists at config.uv_path. Downloads from GitHub if absent.
+///
+/// Uses pure-Rust gzip + tar extraction (flate2 + tar crates) — no system
+/// `tar` dependency required.
 fn ensure_uv(config: &LauncherConfig) -> anyhow::Result<()> {
     if config.uv_path.exists() {
         return Ok(());
@@ -182,32 +187,18 @@ fn ensure_uv(config: &LauncherConfig) -> anyhow::Result<()> {
     let response = client.get(&url).send()?.error_for_status()?;
     let bytes = response.bytes()?;
 
-    // Write tarball to a temp location inside data_dir, then extract with system tar.
+    // Write tarball to a temp location, then extract with pure-Rust code.
     let extract_dir = config.data_dir.join(".uv-extract");
     std::fs::create_dir_all(&extract_dir)?;
     let tarball = extract_dir.join("uv.tar.gz");
     std::fs::write(&tarball, &bytes)?;
 
-    let status = std::process::Command::new("tar")
-        .args(["xzf"])
-        .arg(&tarball)
-        .arg("-C")
-        .arg(&extract_dir)
-        .status()?;
-
-    if !status.success() {
+    let uv_bin = extract_uv(&tarball, &extract_dir).inspect_err(|_| {
         let _ = std::fs::remove_dir_all(&extract_dir);
-        anyhow::bail!("tar extraction of uv archive failed");
-    }
+    })?;
 
-    let uv_bin = find_file(&extract_dir, "uv")?;
     std::fs::copy(&uv_bin, &config.uv_path)?;
     let _ = std::fs::remove_dir_all(&extract_dir);
-
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = std::fs::metadata(&config.uv_path)?.permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&config.uv_path, perms)?;
 
     if !config.uv_path.exists() {
         return Err(SetupError::UvNotExecutable.into());
@@ -216,20 +207,32 @@ fn ensure_uv(config: &LauncherConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Recursively find the first file named `name` under `dir`.
-fn find_file(dir: &Path, name: &str) -> anyhow::Result<PathBuf> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            if let Ok(found) = find_file(&path, name) {
-                return Ok(found);
+/// Extract the `uv` binary from a `.tar.gz` archive using pure Rust.
+///
+/// Iterates archive entries; returns the path of the extracted binary on
+/// success, or an error if the archive contains no file named `uv`.
+fn extract_uv(archive_path: &Path, dest_dir: &Path) -> anyhow::Result<PathBuf> {
+    use flate2::read::GzDecoder;
+    use tar::Archive;
+
+    let f = std::fs::File::open(archive_path)?;
+    let gz = GzDecoder::new(f);
+    let mut archive = Archive::new(gz);
+
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        if entry.path()?.file_name().is_some_and(|n| n == "uv") {
+            let out = dest_dir.join("uv");
+            entry.unpack(&out)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o755))?;
             }
-        } else if path.file_name().and_then(|n| n.to_str()) == Some(name) {
-            return Ok(path);
+            return Ok(out);
         }
     }
-    anyhow::bail!("file '{}' not found in {}", name, dir.display())
+    Err(anyhow::anyhow!("uv binary not found in archive"))
 }
 
 #[cfg(test)]
@@ -239,15 +242,15 @@ mod tests {
 
     fn make_config(data_dir: &Path) -> LauncherConfig {
         LauncherConfig {
-            data_dir:     data_dir.to_path_buf(),
-            venv_dir:     data_dir.join("venv"),
-            uv_path:      data_dir.join("uv"),
+            data_dir: data_dir.to_path_buf(),
+            venv_dir: data_dir.join("venv"),
+            uv_path: data_dir.join("uv"),
             version_file: data_dir.join("installed_version"),
-            bin_dir:      data_dir.join("bin"),
+            bin_dir: data_dir.join("bin"),
             installed_bin: data_dir.join("bin").join("concierge"),
-            skip_update:  false,
+            skip_update: false,
             package_name: "agentic-concierge".to_string(),
-            pypi_extra:   None,
+            pypi_extra: None,
         }
     }
 
@@ -277,5 +280,67 @@ mod tests {
         std::fs::write(&bin, "#!/bin/sh\necho fake").unwrap();
         let result = ensure_environment(&config).unwrap();
         assert_eq!(result, bin);
+    }
+
+    // ── extract_uv tests ──────────────────────────────────────────────────────
+
+    /// Build an in-memory .tar.gz containing a single file named `filename`
+    /// with `content` as its bytes.
+    fn make_tar_gz(filename: &str, content: &[u8]) -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use tar::Builder;
+
+        let gz_buf = Vec::new();
+        let enc = GzEncoder::new(gz_buf, Compression::default());
+        let mut archive = Builder::new(enc);
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+
+        archive.append_data(&mut header, filename, content).unwrap();
+        let enc = archive.into_inner().unwrap();
+        enc.finish().unwrap()
+    }
+
+    #[test]
+    fn test_extract_uv_from_synthetic_archive() {
+        let dir = tempdir().unwrap();
+        let fake_uv_content = b"#!/bin/sh\necho uv fake";
+
+        let tar_gz_bytes = make_tar_gz("uv", fake_uv_content);
+        let archive_path = dir.path().join("uv.tar.gz");
+        std::fs::write(&archive_path, &tar_gz_bytes).unwrap();
+
+        let result = extract_uv(&archive_path, dir.path());
+        assert!(
+            result.is_ok(),
+            "extract_uv should succeed: {:?}",
+            result.err()
+        );
+
+        let extracted_path = result.unwrap();
+        assert_eq!(extracted_path, dir.path().join("uv"));
+        assert_eq!(std::fs::read(&extracted_path).unwrap(), fake_uv_content);
+    }
+
+    #[test]
+    fn test_extract_uv_missing_binary() {
+        let dir = tempdir().unwrap();
+
+        // Archive contains a file named "not-uv", not "uv"
+        let tar_gz_bytes = make_tar_gz("not-uv", b"wrong binary");
+        let archive_path = dir.path().join("uv.tar.gz");
+        std::fs::write(&archive_path, &tar_gz_bytes).unwrap();
+
+        let result = extract_uv(&archive_path, dir.path());
+        assert!(
+            result.is_err(),
+            "should fail when archive has no 'uv' entry"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("uv binary not found"), "error message: {msg}");
     }
 }

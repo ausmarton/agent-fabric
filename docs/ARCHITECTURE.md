@@ -574,11 +574,11 @@ in future phases without touching `main.rs`.
 
 ### Future evolution paths
 
-| Module | Future replacement |
-|--------|--------------------|
-| `setup.rs` | Phase 14+: native Rust Python environment manager (replace subprocess calls) |
-| `update.rs` | Phase 14+: signed binary verification before apply |
-| `exec.rs`   | Phase 14+: macOS / Windows support (replace `execv` with platform-specific) |
+| Module | Status |
+|--------|--------|
+| `setup.rs` | Phase 14 done — pure-Rust `flate2`+`tar` extraction; no system `tar` dep |
+| `update.rs` | Phase 14 done — Ed25519 sig verification before apply (ADR-017) |
+| `exec.rs`   | Phase 14 done — `#[cfg(unix)]` guard; Phase 15: Windows `CreateProcess` |
 | `config.rs` | Stable; env-var contract unlikely to change |
 
 ### Distribution
@@ -590,3 +590,31 @@ in future phases without touching `main.rs`.
 | Docker (GHCR) | Operators | `docker compose up` |
 
 The launcher binary is a **thin distribution shim only** — all application logic stays in Python.
+
+---
+
+## 10. Phase 14: Hot-path analysis
+
+**Finding**: The Python application is I/O-bound on every hot path. No PyO3 extension
+module is justified at current scale.
+
+| Call site | Type | Typical latency | Rust (PyO3) benefit |
+|-----------|------|-----------------|---------------------|
+| LLM HTTP call | I/O | 100 ms – 10 s | None |
+| Tool subprocess | I/O | 10 ms – 5 s | None |
+| `safe_path()` | CPU | ~5 μs | Negligible |
+| `cosine_similarity()` | CPU | ~50 μs/pair | Only if index > 50 k entries |
+| JSON parsing | CPU | ~10 μs (C-backed) | None |
+
+**Verdict**: No PyO3 extension justified at current scale. The one candidate,
+`cosine_similarity`, is already superseded by ChromaDB for large-scale deployments.
+Deferred to Phase 16 pending profiling evidence at production scale (> 50 k entries).
+
+**Phase 14 Rust changes** (launcher only — not application):
+- `setup.rs`: replaced `tar xzf` subprocess with `flate2` + `tar` pure-Rust extraction.
+  Removes the system `tar` dependency; works on macOS, Linux musl, and future Windows.
+- `update.rs`: added Ed25519 signature verification (`ed25519-dalek`) before atomic binary
+  rename. See ADR-017 for key management and failure policy.
+- `exec.rs`: `#[cfg(unix)]` guard documents the Linux + macOS POSIX path; Phase 15 will
+  add the `#[cfg(windows)]` branch using `CreateProcess` + `WaitForSingleObject`.
+- CI + `install.sh`: macOS targets (`x86_64/aarch64-apple-darwin`) added to all workflows.

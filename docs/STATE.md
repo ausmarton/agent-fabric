@@ -2,11 +2,35 @@
 
 **Purpose:** Single source of truth for “where we are” so any human or agent can resume work across restarts and sessions.
 
-**Last updated:** 2026-02-26. Fast CI: **599 pass** (Python tests unchanged; Phases 1–13 complete).
+**Last updated:** 2026-02-27. Fast CI: **618 pass** (`make test`; Python tests unchanged).
+Rust launcher: **20 tests pass** (`make test-rust`; up from 13 in Phase 13).
 
 ---
 
-## Current phase: **Phase 13 complete**
+## Current phase: **Phase 14 complete**
+
+### Phase 14 checklist — **complete**
+
+| # | Deliverable | Status | Notes |
+|---|-------------|--------|-------|
+| P14-1 | `launcher/Cargo.toml` — add flate2, tar, ed25519-dalek | Done | All pure Rust; musl static linking unaffected |
+| P14-2 | `launcher/src/setup.rs` — pure-Rust tar extraction | Done | `extract_uv()` via flate2+tar; `find_file()` removed; 2 new tests |
+| P14-3 | `launcher/src/update.rs` — Ed25519 signed verification | Done | `verify_binary_signature_with_key`; `apply_update` downloads + verifies `.sig`; macOS asset names; 5 new tests |
+| P14-4 | `launcher/src/exec.rs` — `#[cfg(unix)]` annotation | Done | Comment documents Phase 15 Windows path; no functional change |
+| P14-5 | `install.sh` — macOS platform dispatch | Done | OS+arch case-block; Darwin/arm64 → aarch64-apple-darwin |
+| P14-6 | `.github/workflows/build-launcher.yml` — macOS matrix | Done | `build-native` job; 4 targets; portable size gate (perl) |
+| P14-7 | `.github/workflows/release.yml` — signing + macOS | Done | `Sign binaries` step (graceful if secret unset); all 4 targets |
+| P14-8 | Application hot-path audit | Done | I/O-bound; PyO3 deferred to Phase 16; see ARCHITECTURE.md §10 |
+| P14-9 | Docs | Done | ADR-017; ARCHITECTURE §10; BACKLOG Phase 14+futures; STATE; CHANGELOG |
+| P14-10 | `Makefile` — `setup-rust-toolchain` target | Done | User-local rustup install; `lint-rust` uses `~/.cargo/bin/cargo` |
+| P14-11 | `scripts/generate_signing_key.sh` | Done | One-time keygen helper; Ed25519 via openssl; instructions printed |
+
+**Rust tests:** `make test-rust` → **20 pass** (was 13)
+**Python fast CI:** `make test` → **618 pass** (unchanged)
+
+---
+
+## Current phase: **Phase 13 complete** (superseded by Phase 14)
 
 ### Phase 13 checklist — **complete**
 

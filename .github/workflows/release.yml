@@ -12,20 +12,30 @@ permissions:
 
 jobs:
   build-launcher-release:
-    name: Cross-compile launcher (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    name: Build launcher (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
+        include:
+          - { target: x86_64-unknown-linux-musl,  runner: ubuntu-latest, use_cross: true  }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-latest, use_cross: true  }
+          - { target: x86_64-apple-darwin,        runner: macos-13,      use_cross: false }
+          - { target: aarch64-apple-darwin,       runner: macos-latest,  use_cross: false }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - name: Install cross
+        if: ${{ matrix.use_cross }}
         run: cargo install cross --git https://github.com/cross-rs/cross --locked
-      - name: Cross-compile
-        run: cd launcher && cross build --release --target ${{ matrix.target }}
+      - name: Build
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cd launcher && cross build --release --target ${{ matrix.target }}
+          else
+            cd launcher && cargo build --release --target ${{ matrix.target }}
+          fi
       - name: Rename binary with target suffix
         run: |
           cp launcher/target/${{ matrix.target }}/release/concierge \
@@ -144,6 +154,23 @@ jobs:
           pattern: launcher-*
           path: launcher-bins/
           merge-multiple: true
+      - name: Sign binaries
+        if: needs.build-launcher-release.result == 'success'
+        env:
+          SIGNING_KEY: ${{ secrets.LAUNCHER_SIGNING_KEY_PEM }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::warning::LAUNCHER_SIGNING_KEY_PEM secret not set — binaries will not be signed"
+            exit 0
+          fi
+          printf '%s' "$SIGNING_KEY" > /tmp/signing.pem
+          for f in launcher-bins/concierge-*; do
+            [[ "$f" == *.sig ]] && continue
+            [ -f "$f" ] || continue
+            openssl pkeyutl -sign -inkey /tmp/signing.pem -rawin -in "$f" -out "${f}.sig"
+            echo "Signed: $f"
+          done
+          rm -f /tmp/signing.pem
       - name: Extract changelog for this version
         run: |
           VERSION="${{ needs.build.outputs.version }}"
@@ -154,9 +181,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           LAUNCHER_ASSETS=""
-          for f in launcher-bins/concierge-*-unknown-linux-musl; do
-            [ -f "$f" ] && LAUNCHER_ASSETS="$LAUNCHER_ASSETS $f"
-          done
+          if [ -d launcher-bins ]; then
+            for f in launcher-bins/concierge-*; do
+              [ -f "$f" ] && LAUNCHER_ASSETS="$LAUNCHER_ASSETS $f"
+            done
+          fi
           gh release create "${{ github.ref_name }}" \
             --title "agentic-concierge ${{ github.ref_name }}" \
             --notes-file release_notes.md \

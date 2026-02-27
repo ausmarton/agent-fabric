@@ -9,6 +9,49 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+**Phase 14 — Native Rust Hot Paths + macOS Support**
+- `launcher/src/setup.rs`: `extract_uv()` — pure-Rust `.tar.gz` extraction using
+  `flate2::read::GzDecoder` + `tar::Archive`; replaces `std::process::Command::new("tar")`
+  subprocess. No system `tar` dependency required on any platform.
+- `launcher/src/update.rs`: Ed25519 signed binary verification before atomic self-update.
+  `verify_binary_signature_with_key()` (inner, testable with custom keys) +
+  `verify_binary_signature()` (production, uses embedded `SIGNING_PUBLIC_KEY`).
+  `apply_update()` now downloads `{binary_url}.sig`, verifies, cleans up on failure,
+  renames only on success.  Asset names updated for macOS: `concierge-{arch}-apple-darwin`.
+- `launcher/src/exec.rs`: `#[cfg(unix)]` attribute on `exec_python_concierge()`;
+  comment documenting Phase 15 Windows implementation path.
+- `scripts/generate_signing_key.sh`: one-time Ed25519 keypair generation helper.
+  Prints public key as Rust array literal (paste into `update.rs`) and private key as PEM
+  (store as CI secret `LAUNCHER_SIGNING_KEY_PEM`).
+- `Cargo.toml` deps: `flate2 = "1"`, `tar = "0.4"`,
+  `ed25519-dalek = { version = "2", default-features = false, features = ["std"] }`.
+  All pure Rust; static musl linking unaffected.
+- `.github/workflows/build-launcher.yml`: renamed `build-musl` → `build-native`; added
+  `x86_64-apple-darwin` (macos-13) and `aarch64-apple-darwin` (macos-latest) targets;
+  portable binary size gate using `perl -e`.
+- `.github/workflows/release.yml`: `build-launcher-release` matrix extended with macOS
+  targets; `Sign binaries` step signs each binary with `openssl pkeyutl -rawin` using
+  `LAUNCHER_SIGNING_KEY_PEM` CI secret (graceful — warning only if secret unset).
+- `install.sh`: OS+arch platform dispatch replaces Linux-only guard.
+  Supports Linux x86_64/aarch64 (musl) and macOS x86_64/arm64 (apple-darwin).
+- `Makefile`: `setup-rust-toolchain` target — idempotent user-local rustup install
+  (no system packages; installs to `~/.cargo/`); `lint-rust` uses `~/.cargo/bin/cargo`.
+- `docs/DECISIONS.md`: ADR-017 — Ed25519 signed self-update (key management, failure
+  policy, rationale for Ed25519 over RSA/ECDSA/checksum).
+- `docs/ARCHITECTURE.md`: Section 10 — hot-path analysis table; future evolution table
+  updated to show Phase 14 deliverables as done.
+- `docs/BACKLOG.md`: Phase 14 DONE; Phase 15 (Windows + Homebrew), Phase 16 (PyO3 +
+  extra packs), Phase 17+ (multi-tenant, Web UI, plugin registry) future sections added.
+
+### Changed
+
+- `launcher/src/setup.rs`: `ensure_uv()` now calls `extract_uv()` instead of shelling
+  out to `tar`. `find_file()` helper removed (no longer needed).
+- `launcher/src/update.rs`: `apply_update()` extended with sig download + verification
+  steps; cleanup on verification failure; atomic rename only after successful verify.
+
 ---
 
 ## [0.3.1] — 2026-02-26
