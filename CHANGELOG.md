@@ -11,6 +11,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.3.4] — 2026-02-27
+
+### Fixed
+
+- `install.sh`: add pip fallback when the native binary is not yet available on
+  the GitHub release (e.g. CI cross-compile still in progress); falls back to
+  `pip install agentic-concierge` with a clear message rather than a bare 404.
+- `.github/workflows/release.yml`: add `fail-fast: false` to the
+  `build-launcher-release` matrix so a macOS target failure no longer cancels
+  the Linux musl builds. This was the root cause of the launcher binaries being
+  absent from the v0.3.2 and v0.3.3 releases.
+
+---
+
 ## [0.3.3] — 2026-02-27
 
 ### Fixed
@@ -233,7 +247,8 @@ Initial public release of agentic-concierge, covering Phases 1–8.
 - Release workflow: automated PyPI publish (OIDC trusted publishing) + Docker image to GHCR on version tags.
 - Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agentic-concierge + model-pull).
 
-[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.0...v0.3.1
