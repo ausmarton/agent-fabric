@@ -1,11 +1,11 @@
-"""Tests for sandbox path safety."""
+"""Tests for sandbox path safety and command allowlist."""
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
 import pytest
-from agentic_concierge.infrastructure.tools.sandbox import SandboxPolicy, safe_path
+from agentic_concierge.infrastructure.tools.sandbox import SandboxPolicy, run_cmd, safe_path
 
 
 def test_safe_path_within_root():
@@ -26,3 +26,25 @@ def test_safe_path_escape_fails(tmp_path, escape_path):
     policy = SandboxPolicy(root=tmp_path)
     with pytest.raises(PermissionError):
         safe_path(policy, escape_path)
+
+
+def test_safe_path_rejects_absolute_path(tmp_path):
+    """safe_path must reject absolute paths with a PermissionError."""
+    policy = SandboxPolicy(root=tmp_path)
+    with pytest.raises(PermissionError, match="relative"):
+        safe_path(policy, "/etc/passwd")
+
+
+def test_run_cmd_rejects_disallowed_command(tmp_path):
+    """run_cmd must raise PermissionError for commands not in the allowlist."""
+    policy = SandboxPolicy(root=tmp_path)
+    with pytest.raises(PermissionError, match="not allowed"):
+        run_cmd(policy, ["rm", "-rf", "/"])
+
+
+def test_run_cmd_allows_listed_command(tmp_path):
+    """python3 --version is in the allowlist and should succeed."""
+    policy = SandboxPolicy(root=tmp_path)
+    result = run_cmd(policy, ["python3", "--version"])
+    assert result["returncode"] == 0
+    assert "Python" in result["stdout"] or "Python" in result["stderr"]

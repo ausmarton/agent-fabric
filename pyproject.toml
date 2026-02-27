@@ -79,6 +79,10 @@ markers = [
     "real_llm: marks tests that require a live LLM (deselect with -k 'not real_llm')",
     "real_mcp: marks tests that require a real MCP server via npx (deselect with -k 'not real_mcp')",
     "podman: marks tests that require Podman and a pulled container image (deselect with -k 'not podman')",
+    "real_browser: marks tests that require Playwright and a browser installation",
+    "real_chromadb: marks tests that require chromadb to be installed and writable",
+    "launcher: marks tests that exercise the Rust launcher binary (requires a built binary)",
+    "docker: marks tests that require Docker and docker-compose",
 ]
 
 [tool.ruff]
