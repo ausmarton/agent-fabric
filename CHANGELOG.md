@@ -9,6 +9,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+---
+
+## [0.3.2] — 2026-02-27
+
 ### Added
 
 **Phase 14 — Native Rust Hot Paths + macOS Support**
