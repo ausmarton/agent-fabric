@@ -47,14 +47,31 @@ LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
 echo "[concierge] installing ${LATEST} for ${TARGET}..."
 mkdir -p "$INSTALL_DIR"
 
+BINARY_URL="https://github.com/${REPO}/releases/download/${LATEST}/concierge-${TARGET}"
 TMP=$(mktemp)
-curl -fsSL \
-    "https://github.com/${REPO}/releases/download/${LATEST}/concierge-${TARGET}" \
-    -o "$TMP"
-chmod +x "$TMP"
-mv "$TMP" "${INSTALL_DIR}/concierge"
 
-echo "[concierge] installed to ${INSTALL_DIR}/concierge"
+# Attempt binary download; fall back to pip if the asset is not yet on the release.
+if curl -fsSL "$BINARY_URL" -o "$TMP" 2>/dev/null; then
+    chmod +x "$TMP"
+    mv "$TMP" "${INSTALL_DIR}/concierge"
+    echo "[concierge] installed to ${INSTALL_DIR}/concierge"
+else
+    rm -f "$TMP"
+    echo "[concierge] native binary not yet available for ${TARGET} in ${LATEST}." >&2
+    echo "[concierge] falling back to: pip install agentic-concierge" >&2
+    if command -v pip3 >/dev/null 2>&1; then
+        pip3 install --quiet "agentic-concierge==${LATEST#v}"
+        echo "[concierge] installed via pip (use 'concierge' from your Python environment)"
+    elif command -v pip >/dev/null 2>&1; then
+        pip install --quiet "agentic-concierge==${LATEST#v}"
+        echo "[concierge] installed via pip (use 'concierge' from your Python environment)"
+    else
+        echo "[concierge] pip not found. Install manually:" >&2
+        echo "    pip install agentic-concierge" >&2
+        exit 1
+    fi
+    exit 0
+fi
 
 # PATH hint when install dir is not in PATH
 case ":$PATH:" in
