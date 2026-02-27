@@ -151,19 +151,37 @@ pub fn apply_update(config: &LauncherConfig, release: &ReleaseInfo) -> anyhow::R
     let new_path = config.data_dir.join("concierge.new");
     std::fs::write(&new_path, &bytes)?;
 
-    // Step 2+3 — download signature
+    // Step 2+3 — download signature (optional: absent sig = warn + skip verify)
     let sig_url = format!("{}.sig", release.download_url);
-    let sig_response = client.get(&sig_url).send()?.error_for_status()?;
-    let sig_bytes = sig_response.bytes()?;
+    let sig_response = client.get(&sig_url).send()?;
+    let sig_status = sig_response.status();
 
-    let sig_path = config.data_dir.join("concierge.new.sig");
-    std::fs::write(&sig_path, &sig_bytes)?;
+    if sig_status.is_success() {
+        let sig_bytes = sig_response.bytes()?;
+        let sig_path = config.data_dir.join("concierge.new.sig");
+        std::fs::write(&sig_path, &sig_bytes)?;
 
-    // Step 4 — verify before applying; clean up on failure
-    if let Err(e) = verify_binary_signature(&new_path, &sig_path) {
-        let _ = std::fs::remove_file(&new_path);
+        // Step 4 — verify before applying; clean up on failure
+        if let Err(e) = verify_binary_signature(&new_path, &sig_path) {
+            let _ = std::fs::remove_file(&new_path);
+            let _ = std::fs::remove_file(&sig_path);
+            return Err(e);
+        }
         let _ = std::fs::remove_file(&sig_path);
-        return Err(e);
+    } else if sig_status.as_u16() == 404 {
+        // No .sig on this release (LAUNCHER_SIGNING_KEY_PEM not configured in CI).
+        // Warn but allow the update — verification is best-effort until a key is set up.
+        eprintln!(
+            "[concierge] WARNING: no signature file for v{} — skipping verification",
+            release.version
+        );
+    } else {
+        // Unexpected HTTP error fetching the sig — abort and clean up.
+        let _ = std::fs::remove_file(&new_path);
+        return Err(anyhow::anyhow!(
+            "failed to download signature file: HTTP {}",
+            sig_status
+        ));
     }
 
     // Step 5 — chmod +x
@@ -177,9 +195,6 @@ pub fn apply_update(config: &LauncherConfig, release: &ReleaseInfo) -> anyhow::R
 
     // Step 6 — atomic rename
     std::fs::rename(&new_path, &config.installed_bin)?;
-
-    // Step 7 — remove sig
-    let _ = std::fs::remove_file(&sig_path);
 
     eprintln!("[concierge] updated to v{}", release.version);
     Ok(())

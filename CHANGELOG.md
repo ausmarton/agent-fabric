@@ -11,6 +11,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.3.8] — 2026-02-27
+
+### Fixed
+
+- `launcher/src/update.rs`: `--self-update` no longer hard-fails with HTTP 404
+  when no `.sig` file is present on the release. The signature is now treated as
+  optional: a missing sig (404) emits a warning and proceeds; a present-but-invalid
+  sig still aborts the update. Until `LAUNCHER_SIGNING_KEY_PEM` is configured in
+  CI, releases will not have `.sig` files and self-update will warn but work.
+
+---
+
 ## [0.3.7] — 2026-02-27
 
 ### Fixed
@@ -308,7 +320,8 @@ Initial public release of agentic-concierge, covering Phases 1–8.
 - Release workflow: automated PyPI publish (OIDC trusted publishing) + Docker image to GHCR on version tags.
 - Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agentic-concierge + model-pull).
 
-[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.7...HEAD
+[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.8...HEAD
+[0.3.8]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.4...v0.3.5
