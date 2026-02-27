@@ -11,6 +11,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.3.9] — 2026-02-27
+
+### Fixed
+
+- `infrastructure/tools/shell_tools.py`, `test_runner.py`, `web_tools.py`,
+  `specialists/containerised.py`: coerce `timeout_s` to the correct numeric
+  type (`int` / `float`) at each tool's entry point. Small LLMs (e.g.
+  llama3.1:8b) pass `timeout_s` as a string `"120"` despite the JSON schema
+  declaring `"type": "integer"`, causing `subprocess.run()` to crash with
+  `unsupported operand type(s) for +: 'float' and 'str'` on every `shell`
+  call — making every engineering task fail immediately.
+
+---
+
 ## [0.3.8] — 2026-02-27
 
 ### Fixed
@@ -320,7 +334,8 @@ Initial public release of agentic-concierge, covering Phases 1–8.
 - Release workflow: automated PyPI publish (OIDC trusted publishing) + Docker image to GHCR on version tags.
 - Dockerfile (multi-stage builder + slim runtime) and docker-compose.yml (Ollama + agentic-concierge + model-pull).
 
-[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.9...HEAD
+[0.3.9]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/ausmarton/agentic-concierge/compare/v0.3.5...v0.3.6

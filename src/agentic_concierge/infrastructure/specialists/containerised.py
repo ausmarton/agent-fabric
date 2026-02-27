@@ -202,7 +202,7 @@ class ContainerisedSpecialistPack:
             return {"error": "Container is not running (call aopen() first)"}
 
         cmd: List[str] = args.get("cmd", [])
-        timeout_s: int = args.get("timeout_s", SHELL_DEFAULT_TIMEOUT_S)
+        timeout_s: int = int(args.get("timeout_s", SHELL_DEFAULT_TIMEOUT_S))
 
         if not cmd:
             raise ValueError("Empty command")

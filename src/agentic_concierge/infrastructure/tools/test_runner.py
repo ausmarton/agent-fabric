@@ -155,6 +155,9 @@ def run_tests(
         dict with keys: ``passed`` (bool), ``failed_count``, ``error_count``,
         ``summary`` (str), ``output`` (last 3000 chars), ``framework`` (str).
     """
+    # LLMs occasionally send numeric args as strings despite the schema type hint.
+    timeout_s = int(timeout_s)
+
     from .sandbox import safe_path
 
     # Resolve the test directory

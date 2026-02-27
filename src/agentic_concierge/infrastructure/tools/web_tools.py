@@ -26,7 +26,7 @@ def web_search(query: str, max_results: int = 8) -> Dict[str, Any]:
 
 def fetch_url(url: str, timeout_s: float = 30.0) -> Dict[str, Any]:
     headers = {"User-Agent": "agentic-concierge/0.1 (+local)"}
-    with httpx.Client(timeout=timeout_s, headers=headers, follow_redirects=True) as client:
+    with httpx.Client(timeout=float(timeout_s), headers=headers, follow_redirects=True) as client:
         r = client.get(url)
         r.raise_for_status()
         html = r.text

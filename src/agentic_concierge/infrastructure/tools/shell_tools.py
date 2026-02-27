@@ -8,4 +8,5 @@ from .sandbox import SandboxPolicy, run_cmd
 
 
 def run_shell(policy: SandboxPolicy, cmd: List[str], timeout_s: int = 120) -> dict:
-    return run_cmd(policy, cmd, timeout_s=timeout_s)
+    # LLMs occasionally pass timeout_s as a string despite the schema type hint.
+    return run_cmd(policy, cmd, timeout_s=int(timeout_s))
